@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}SketchTalk — {{ data.site_name }}{% endblock %}
+{% block og_title %}SketchTalk — Voice to Line Art{% endblock %}
+{% block og_description %}Presentasi real-time: ucapan menjadi diagram line-art minimalis.{% endblock %}
+
+{% block header %}{% endblock %}
+{% block footer %}{% endblock %}
+{% block main_class %}sk-main{% endblock %}
+
+{% block content %}
+<div id="sk-stage" class="sk-stage sk-dotgrid">
+    <canvas id="sk-canvas"></canvas>
+
+    <!-- Empty state -->
+    <div id="sk-empty" class="sk-empty">
+        <div class="sk-empty-card">
+            <p class="text-2xl font-bold tracking-tight">&ldquo;Mulai berbicara untuk menggambar&hellip;&rdquo;</p>
+            <p class="mt-3 text-sm leading-relaxed text-mute">
+                Tekan tombol <b>Mikrofon</b> di bawah, atau ketik kalimat presentasi lalu tekan Enter.
+                Ucapkan <b class="font-mono">&ldquo;BERHENTI&rdquo;</b> untuk jeda,
+                <b class="font-mono">&ldquo;LANJUTKAN&rdquo;</b> untuk lanjut,
+                <b class="font-mono">&ldquo;HAPUS LAYAR&rdquo;</b> untuk slide baru.
+            </p>
+        </div>
+    </div>
+
+    <!-- Top-left: brand + engine badge -->
+    <div class="sk-float sk-float-tl">
+        <a href="/" class="flex items-center gap-2" title="Kembali ke beranda">
+            <span class="flex h-6 w-6 items-center justify-center border-2 border-black">
+                <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                    <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                </svg>
+            </span>
+            <span class="text-sm font-bold tracking-tight">SketchTalk</span>
+        </a>
+        <span class="mx-2 text-line">|</span>
+        <span id="sk-engine" class="font-mono text-[11px] uppercase tracking-widest text-mute"
+              title="Engine Visual Director">engine: &hellip;</span>
+        <span class="mx-2 text-line">|</span>
+        <a href="{{ url_for('sketchtalk_blueprint.mic', room=data.room) }}"
+           class="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] underline"
+           title="Buka halaman mikrofon untuk room ini">mic: {{ data.room }}</a>
+    </div>
+
+    <!-- Top-center: live topic -->
+    <div id="sk-topicbar" class="sk-float sk-float-tc" style="display: none;">
+        <span id="sk-time" class="sk-timechip" style="display: none;"></span>
+        <span class="font-mono text-[11px] uppercase tracking-widest text-mute">topik</span>
+        <span id="sk-topic" class="text-sm font-semibold tracking-tight"></span>
+        <span class="mx-2 text-line">|</span>
+        <span id="sk-layout" class="font-mono text-[11px] uppercase tracking-widest text-mute"></span>
+    </div>
+
+    <!-- Top-right: canvas actions -->
+    <div class="sk-float sk-float-tr">
+        <button id="sk-grid-btn" class="sk-tool" title="Toggle dot grid">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <circle cx="5" cy="5" r="1.4"/><circle cx="12" cy="5" r="1.4"/><circle cx="19" cy="5" r="1.4"/>
+                <circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>
+                <circle cx="5" cy="19" r="1.4"/><circle cx="12" cy="19" r="1.4"/><circle cx="19" cy="19" r="1.4"/>
+            </svg>
+        </button>
+        <button id="sk-fit-btn" class="sk-tool" title="Pusatkan tampilan slide">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+            </svg>
+        </button>
+        <button id="sk-undo-btn" class="sk-tool" title="Urungkan aksi terakhir">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+            </svg>
+        </button>
+        <button id="sk-clear-btn" class="sk-tool sk-tool-text" title="Bersihkan layar">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            <span class="hidden sm:inline">Bersihkan</span>
+        </button>
+        <button id="sk-export-btn" class="sk-tool sk-tool-dark" title="Simpan sebagai PNG">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+            <span class="hidden sm:inline">Export PNG</span>
+        </button>
+    </div>
+
+    <!-- Pause overlay -->
+    <div id="sk-paused" class="sk-paused" style="display: none;">
+        <div class="sk-paused-card">
+            <p class="font-mono text-xs uppercase tracking-[0.2em] text-mute">sistem dijeda</p>
+            <p class="mt-2 text-lg font-bold tracking-tight">Ucapkan <span class="font-mono">&ldquo;LANJUTKAN&rdquo;</span> untuk melanjutkan</p>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="sk-toast" class="sk-toast"></div>
+
+    <!-- Bottom dock -->
+    <div class="sk-dock-wrap">
+        <div id="sk-samples" class="sk-samples">
+            <span class="shrink-0 font-mono text-[10px] uppercase tracking-widest text-mute">coba cepat:</span>
+            <button class="sk-sample" data-text="Selamat pagi">Pagi</button>
+            <button class="sk-sample" data-text="Selamat sore">Sore</button>
+            <button class="sk-sample" data-text="Good evening">Evening</button>
+            <button class="sk-sample" data-text="Selamat Hari Sabat">Hari Sabat</button>
+            <button class="sk-sample" data-text="Oke ya">&ldquo;Oke ya&rdquo; &rarr; IGNORE</button>
+            <button class="sk-sample" data-text="Masalah utama bisnis kita sekarang adalah biaya operasional yang membengkak">Masalah &rarr; DRAW</button>
+            <button class="sk-sample" data-text="Tapi dengan sistem otomasi baru, kita bisa memangkas biaya hingga 60 persen">Otomasi &rarr; -60%</button>
+            <button class="sk-sample" data-text="Selanjutnya, tim kita akan fokus ke target sukses global">Transisi &rarr; CLEAR</button>
+            <button class="sk-sample" data-text="Sebentar, BERHENTI dulu ya saya mau minum">BERHENTI</button>
+            <button class="sk-sample" data-text="Oke LANJUTKAN presentasinya">LANJUTKAN</button>
+        </div>
+
+        <div class="sk-dock">
+            <button id="sk-mic" class="sk-mic" title="Mulai / hentikan mikrofon">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+            </button>
+            <div class="min-w-0 flex-1 px-1">
+                <div id="sk-interim" class="h-4 truncate font-mono text-[11px] text-mute">Siap mendengarkan suara atau ketik di bawah&hellip;</div>
+                <form id="sk-form" class="flex items-center gap-2">
+                    <input id="sk-input" type="text" autocomplete="off"
+                           placeholder="Ketik kalimat presentasi &amp; tekan Enter&hellip;"
+                           class="w-full bg-transparent text-sm font-medium tracking-tight focus:outline-none placeholder:text-mute/70">
+                </form>
+            </div>
+            <span id="sk-lang" class="sk-lang" title="Ganti bahasa suara">ID</span>
+            <button id="sk-send" type="button" class="sk-send">Gambar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    window.SK_CONFIG = {
+        csrfToken: "{{ data.csrf_token }}",
+        interpretUrl: "{{ url_for('sketchtalk_blueprint.interpret') }}",
+        stateUrl: "{{ url_for('sketchtalk_blueprint.room_state', room=data.room) }}",
+        room: "{{ data.room }}",
+        aiEnabled: {{ "true" if data.ai_enabled else "false" }},
+        aiProvider: "{{ data.ai_provider }}",
+        aiModel: "{{ data.ai_model }}"
+    };
+</script>
+<script src="{{ url_for('static', filename='sketchtalk/sketchtalk-icons.js') }}" defer></script>
+<script src="{{ url_for('static', filename='sketchtalk/sketchtalk.js') }}" defer></script>
+{% endblock %}

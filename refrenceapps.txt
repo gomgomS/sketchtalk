@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+    <html lang="id">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>SketchTalk — Voice to Minimalist Line Art</title>
+        <!-- Tailwind CSS -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- Rough.js for organic hand-drawn line art -->
+        <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
+        <!-- Google Fonts: Inter & Patrick Hand (for subtle architectural/sketch labels) -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Patrick+Hand&display=swap" rel="stylesheet">
+        
+        <style>
+            body {
+                font-family: 'Inter', sans-serif;
+                background-color: #ffffff;
+                color: #111111;
+                overflow: hidden;
+                touch-action: none;
+                user-select: none;
+            }
+            
+            .font-sketch {
+                font-family: 'Patrick Hand', cursive, sans-serif;
+            }
+
+            /* Subtle paper dot grid background */
+            .bg-dot-grid {
+                background-image: radial-gradient(#d4d4d8 1px, transparent 1px);
+                background-size: 24px 24px;
+            }
+
+            /* Pulse animation for active microphone */
+            @keyframes pulse-ring {
+                0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(17, 17, 17, 0.4); }
+                70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(17, 17, 17, 0); }
+                100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(17, 17, 17, 0); }
+            }
+            .mic-active {
+                animation: pulse-ring 1.8s infinite;
+            }
+
+            /* Custom thin scrollbar for sample pills */
+            .no-scrollbar::-webkit-scrollbar {
+                display: none;
+            }
+            .no-scrollbar {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+            }
+        </style>
+    </head>
+    <body class="w-screen h-screen flex flex-col relative bg-white">
+
+        <!-- Top Floating Toolbar -->
+        <header class="fixed top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+            <!-- Brand & Language Switcher -->
+            <div class="flex items-center gap-2 bg-white/95 backdrop-blur-sm border border-zinc-200 shadow-sm rounded-2xl px-3.5 py-2 pointer-events-auto">
+                <div class="w-6 h-6 rounded-lg border-2 border-zinc-900 flex items-center justify-center">
+                    <svg class="w-3.5 h-3.5 text-zinc-900" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+                        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+                    </svg>
+                </div>
+                <span class="font-semibold text-sm tracking-tight text-zinc-900">SketchTalk</span>
+                <span class="text-zinc-300">|</span>
+                <!-- Language Toggle -->
+                <button id="langToggleBtn" class="text-xs font-medium px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 transition cursor-pointer" title="Ganti Bahasa Suara">
+                    🇮🇩 ID
+                </button>
+            </div>
+
+            <!-- Canvas Actions -->
+            <div class="flex items-center gap-1.5 bg-white/95 backdrop-blur-sm border border-zinc-200 shadow-sm rounded-2xl p-1.5 pointer-events-auto">
+                <!-- Grid Toggle -->
+                <button id="gridToggleBtn" class="p-2 rounded-xl hover:bg-zinc-100 text-zinc-700 transition cursor-pointer" title="Toggle Dot Grid">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="5" cy="5" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="19" cy="5" r="1"/>
+                        <circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>
+                        <circle cx="5" cy="19" r="1"/><circle cx="12" cy="19" r="1"/><circle cx="19" cy="19" r="1"/>
+                    </svg>
+                </button>
+
+                <!-- Reset Camera -->
+                <button id="resetViewBtn" class="p-2 rounded-xl hover:bg-zinc-100 text-zinc-700 transition cursor-pointer" title="Reset Posisi Kamera">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                    </svg>
+                </button>
+
+                <!-- Undo Last Sketch -->
+                <button id="undoBtn" class="p-2 rounded-xl hover:bg-zinc-100 text-zinc-700 transition cursor-pointer" title="Hapus Elemen Terakhir">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                    </svg>
+                </button>
+
+                <!-- Clear Canvas -->
+                <button id="clearBtn" class="px-3 py-1.5 rounded-xl hover:bg-zinc-100 text-xs font-medium text-zinc-800 transition cursor-pointer flex items-center gap-1.5" title="Bersihkan Layar">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                    <span class="hidden sm:inline">Bersihkan</span>
+                </button>
+
+                <!-- Export PNG -->
+                <button id="exportBtn" class="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium transition cursor-pointer flex items-center gap-1.5" title="Simpan sebagai Gambar PNG">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>
+                    <span class="hidden sm:inline">Export PNG</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Interactive Sketch Canvas -->
+        <main id="canvasContainer" class="w-full h-full relative bg-dot-grid cursor-grab active:cursor-grabbing">
+            <canvas id="sketchCanvas" class="block w-full h-full"></canvas>
+
+            <!-- Empty State Hint -->
+            <div id="emptyHint" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-6 text-center transition-opacity duration-300">
+                <div class="max-w-md space-y-2 bg-white/80 backdrop-blur-xs p-6 rounded-3xl border border-zinc-200/80">
+                    <p class="font-sketch text-2xl text-zinc-800">"Mulai berbicara untuk menggambar..."</p>
+                    <p class="text-xs text-zinc-500 leading-relaxed">
+                        Tekan tombol <b>Mikrofon</b> di bawah atau ketik kalimat seperti: <br>
+                        <span class="text-zinc-700 font-medium">"Tim kita punya ide baru untuk menaikkan profit ke target"</span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Toast Notification Box (No alert() used) -->
+            <div id="toastBox" class="fixed top-20 left-1/2 -translate-x-1/2 z-30 bg-zinc-900 text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg opacity-0 pointer-events-none transition-opacity duration-200">
+                Notifikasi
+            </div>
+        </main>
+
+        <!-- Bottom Live Subtitle & Control Dock -->
+        <footer class="fixed bottom-4 left-4 right-4 z-20 flex flex-col items-center gap-2.5 pointer-events-none">
+            
+            <!-- Quick Sample Presentation Prompts (for instant testing without mic) -->
+            <div class="w-full max-w-2xl flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 px-1 pointer-events-auto">
+                <span class="text-[11px] font-medium text-zinc-400 shrink-0 mr-1">Coba cepat:</span>
+                <button class="sample-pill shrink-0 text-xs bg-white/95 hover:bg-zinc-900 hover:text-white text-zinc-700 border border-zinc-200 rounded-full px-3 py-1 transition cursor-pointer shadow-2xs" data-text="Tim kita punya ide baru untuk sistem">
+                    💡 Ide & Tim
+                </button>
+                <button class="sample-pill shrink-0 text-xs bg-white/95 hover:bg-zinc-900 hover:text-white text-zinc-700 border border-zinc-200 rounded-full px-3 py-1 transition cursor-pointer shadow-2xs" data-text="Data dari server menunjukkan grafik naik dan profit meningkat">
+                    📈 Data & Profit Naik
+                </button>
+                <button class="sample-pill shrink-0 text-xs bg-white/95 hover:bg-zinc-900 hover:text-white text-zinc-700 border border-zinc-200 rounded-full px-3 py-1 transition cursor-pointer shadow-2xs" data-text="Ada masalah keamanan yang harus kita selesaikan sesuai jadwal">
+                    ⚠️ Masalah & Jadwal
+                </button>
+                <button class="sample-pill shrink-0 text-xs bg-white/95 hover:bg-zinc-900 hover:text-white text-zinc-700 border border-zinc-200 rounded-full px-3 py-1 transition cursor-pointer shadow-2xs" data-text="Semua terhubung menuju target sukses global">
+                    🎯 Target Sukses
+                </button>
+                <button class="sample-pill shrink-0 text-xs bg-white/95 hover:bg-zinc-900 hover:text-white text-zinc-700 border border-zinc-200 rounded-full px-3 py-1 transition cursor-pointer shadow-2xs" data-text="Kesimpulan selanjutnya hapus layar">
+                    🧹 Slide Baru
+                </button>
+            </div>
+
+            <!-- Subtitle & Input Bar -->
+            <div class="w-full max-w-2xl bg-white/95 backdrop-blur-md border border-zinc-300 shadow-lg rounded-3xl p-2 flex items-center gap-2 pointer-events-auto">
+                
+                <!-- Mic Button -->
+                <button id="micBtn" class="w-11 h-11 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-900 flex items-center justify-center shrink-0 transition cursor-pointer relative" title="Mulai / Hentikan Mikrofon">
+                    <svg id="micIconOn" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" y1="19" x2="12" y2="23"/>
+                        <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                </button>
+
+                <!-- Live Transcript / Manual Text Input -->
+                <div class="flex-1 flex flex-col justify-center min-w-0 px-1">
+                    <div id="liveInterimText" class="text-[11px] text-zinc-400 truncate h-4">
+                        Siap mendengarkan suara atau ketik di bawah...
+                    </div>
+                    <form id="manualForm" class="flex items-center gap-1.5">
+                        <input 
+                            id="manualInput" 
+                            type="text" 
+                            placeholder="Ketik kalimat presentasi & tekan Enter..." 
+                            class="w-full text-sm text-zinc-900 bg-transparent focus:outline-none placeholder:text-zinc-400"
+                            autocomplete="off"
+                        />
+                    </form>
+                </div>
+
+                <!-- Send Text Button -->
+                <button id="sendTextBtn" type="button" class="px-3.5 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-medium shrink-0 transition cursor-pointer">
+                    Gambar
+                </button>
+            </div>
+        </footer>
+
+        <script>
+            /**
+             * SketchTalk Engine
+             * Mengubah ucapan (Speech-to-Text) menjadi ilustrasi Minimalist Line Art
+             * secara real-time menggunakan Rough.js dengan animasi goresan bertahap.
+             */
+
+            // ==========================================
+            // 1. STATE & CANVAS INITIALIZATION
+            // ==========================================
+            const canvas = document.getElementById('sketchCanvas');
+            const ctx = canvas.getContext('2d');
+            const container = document.getElementById('canvasContainer');
+            const emptyHint = document.getElementById('emptyHint');
+            const liveInterimText = document.getElementById('liveInterimText');
+            const manualInput = document.getElementById('manualInput');
+            const micBtn = document.getElementById('micBtn');
+            const langToggleBtn = document.getElementById('langToggleBtn');
+
+            let rc = rough.canvas(canvas);
+            let dpr = window.devicePixelRatio || 1;
+
+            // Camera pan & zoom state
+            const camera = {
+                x: 0,
+                y: 0,
+                zoom: 1,
+                isDragging: false,
+                lastMouseX: 0,
+                lastMouseY: 0
+            };
+
+            // Scene elements (nodes & connectors)
+            let nodes = [];        // { id, type, label, x, y, progress, seed, createdAt }
+            let connectors = [];   // { fromId, toId, progress, seed }
+            let currentLang = 'id-ID';
+            let isListening = false;
+            let recognition = null;
+            let showGrid = true;
+
+            // Resize canvas responsively
+            function resizeCanvas() {
+                const rect = container.getBoundingClientRect();
+                dpr = window.devicePixelRatio || 1;
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            // Utility: Show non-intrusive toast message
+            let toastTimeout = null;
+            function showToast(msg) {
+                const toast = document.getElementById('toastBox');
+                toast.textContent = msg;
+                toast.classList.remove('opacity-0');
+                clearTimeout(toastTimeout);
+                toastTimeout = setTimeout(() => {
+                    toast.classList.add('opacity-0');
+                }, 2500);
+            }
+
+            // ==========================================
+            // 2. SEMANTIC KEYWORD DICTIONARY (ID & EN)
+            // ==========================================
+            const CONCEPT_DICTIONARY = [
+                {
+                    type: 'idea',
+                    defaultLabel: 'Ide / Inovasi',
+                    keywords: ['ide', 'gagasan', 'lampu', 'inovasi', 'kreatif', 'solusi', 'pikir', 'konsep', 'idea', 'innovation', 'light', 'creative', 'solution', 'concept']
+                },
+                {
+                    type: 'team',
+                    defaultLabel: 'Tim / Pengguna',
+                    keywords: ['tim', 'orang', 'user', 'pengguna', 'klien', 'pelanggan', 'kita', 'kami', 'anggota', 'manusia', 'team', 'people', 'user', 'customer', 'client', 'member']
+                },
+                {
+                    type: 'growth',
+                    defaultLabel: 'Pertumbuhan',
+                    keywords: ['grafik', 'naik', 'tumbuh', 'meningkat', 'pertumbuhan', 'statistik', 'performa', 'tren', 'chart', 'growth', 'increase', 'up', 'rise', 'trend', 'analytics']
+                },
+                {
+                    type: 'money',
+                    defaultLabel: 'Profit / Nilai',
+                    keywords: ['uang', 'profit', 'untung', 'biaya', 'modal', 'investasi', 'harga', 'pendapatan', 'revenue', 'money', 'cost', 'budget', 'value', 'dollar', 'rupiah']
+                },
+                {
+                    type: 'server',
+                    defaultLabel: 'Sistem / Cloud',
+                    keywords: ['server', 'sistem', 'aplikasi', 'platform', 'cloud', 'teknologi', 'ai', 'mesin', 'web', 'kode', 'system', 'app', 'tech', 'software', 'engine']
+                },
+                {
+                    type: 'database',
+                    defaultLabel: 'Database / Data',
+                    keywords: ['database', 'data', 'informasi', 'arsip', 'simpan', 'dokumen', 'catatan', 'file', 'storage', 'record', 'knowledge']
+                },
+                {
+                    type: 'target',
+                    defaultLabel: 'Target / Tujuan',
+                    keywords: ['target', 'tujuan', 'fokus', 'sukses', 'visi', 'misi', 'hasil', 'capai', 'goal', 'aim', 'success', 'vision', 'achieve']
+                },
+                {
+                    type: 'warning',
+                    defaultLabel: 'Masalah / Risiko',
+                    keywords: ['masalah', 'peringatan', 'risiko', 'kendala', 'hambatan', 'error', 'bahaya', 'tantangan', 'sulit', 'problem', 'issue', 'risk', 'warning', 'challenge', 'bug']
+                },
+                {
+                    type: 'time',
+                    defaultLabel: 'Waktu / Jadwal',
+                    keywords: ['waktu', 'jadwal', 'hari', 'bulan', 'tahun', 'deadline', 'cepat', 'durasi', 'kapan', 'time', 'schedule', 'clock', 'fast', 'deadline', 'timeline']
+                },
+                {
+                    type: 'globe',
+                    defaultLabel: 'Global / Pasar',
+                    keywords: ['global', 'dunia', 'pasar', 'market', 'luas', 'publik', 'internet', 'jaringan', 'world', 'network', 'public', 'earth']
+                },
+                {
+                    type: 'security',
+                    defaultLabel: 'Keamanan',
+                    keywords: ['aman', 'keamanan', 'kunci', 'privasi', 'lindungi', 'proteksi', 'security', 'safe', 'lock', 'privacy', 'protect']
+                },
+                {
+                    type: 'check',
+                    defaultLabel: 'Selesai / Setuju',
+                    keywords: ['selesai', 'setuju', 'benar', 'oke', 'berhasil', 'valid', 'done', 'agree', 'complete', 'verified', 'yes']
+                }
+            ];
+
+            const CLEAR_COMMANDS = ['hapus layar', 'bersihkan layar', 'slide baru', 'halaman baru', 'mulai dari awal', 'clear screen', 'new slide', 'reset canvas'];
+
+            // ==========================================
+            // 3. PARSER & AUTO-LAYOUT ENGINE
+            // ==========================================
+            function processTranscript(rawText) {
+                const text = rawText.trim();
+                if (!text) return;
+
+                const lowerText = text.toLowerCase();
+
+                // Check if user wants to clear canvas for a "new slide"
+                if (CLEAR_COMMANDS.some(cmd => lowerText.includes(cmd))) {
+                    clearScene();
+                    showToast('Slide baru dibersihkan');
+                    return;
+                }
+
+                // Detect all matching concepts in order of appearance in the sentence
+                let detected = [];
+                CONCEPT_DICTIONARY.forEach(concept => {
+                    let earliestIndex = Infinity;
+                    let matchedWord = '';
+                    concept.keywords.forEach(kw => {
+                        // Word boundary-aware search
+                        const regex = new RegExp(`\\b${kw}\\b`, 'i');
+                        const match = lowerText.match(regex);
+                        if (match && match.index < earliestIndex) {
+                            earliestIndex = match.index;
+                            matchedWord = match[0];
+                        }
+                    });
+
+                    if (earliestIndex !== Infinity) {
+                        detected.push({
+                            index: earliestIndex,
+                            type: concept.type,
+                            label: capitalizeFirst(matchedWord) || concept.defaultLabel
+                        });
+                    }
+                });
+
+                // Sort detected concepts by order spoken
+                detected.sort((a, b) => a.index - b.index);
+
+                // If no specific icon keyword found, create a minimalist "Note / Quote Box" node if sentence has >= 2 words
+                if (detected.length === 0) {
+                    const words = text.split(/\s+/);
+                    if (words.length >= 2) {
+                        const shortLabel = words.slice(0, 4).join(' ') + (words.length > 4 ? '...' : '');
+                        detected.push({
+                            index: 0,
+                            type: 'note',
+                            label: capitalizeFirst(shortLabel)
+                        });
+                    } else {
+                        return;
+                    }
+                }
+
+                // Add nodes sequentially & link them with hand-drawn arrows
+                detected.forEach(item => {
+                    // Avoid duplicate consecutive identical icon + label
+                    const lastNode = nodes[nodes.length - 1];
+                    if (lastNode && lastNode.type === item.type && lastNode.label.toLowerCase() === item.label.toLowerCase()) {
+                        return;
+                    }
+
+                    const pos = calculateNextNodePosition();
+                    const newNode = {
+                        id: 'node_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                        type: item.type,
+                        label: item.label,
+                        x: pos.x,
+                        y: pos.y,
+                        progress: 0, // 0 to 1 for stroke animation
+                        seed: Math.floor(Math.random() * 10000)
+                    };
+
+                    nodes.push(newNode);
+
+                    // Connect from previous node if it's on the same row or nearby
+                    if (lastNode) {
+                        connectors.push({
+                            fromId: lastNode.id,
+                            toId: newNode.id,
+                            progress: 0,
+                            seed: Math.floor(Math.random() * 10000)
+                        });
+                    }
+
+                    // Auto-pan camera smoothly if new node goes off-screen
+                    autoFocusCamera(newNode);
+                });
+
+                updateEmptyState();
+            }
+
+            function capitalizeFirst(str) {
+                if (!str) return '';
+                return str.charAt(0).toUpperCase() + str.slice(1);
+            }
+
+            /**
+             * Calculates clean non-overlapping grid-flow coordinates
+             * Arranges items left-to-right in rows of 3 or 4 depending on screen width.
+             */
+            function calculateNextNodePosition() {
+                const rect = container.getBoundingClientRect();
+                const isMobile = rect.width < 640;
+                const cols = isMobile ? 2 : 4;
+                const spacingX = isMobile ? 165 : 220;
+                const spacingY = isMobile ? 175 : 195;
+
+                const index = nodes.length;
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+
+                // Center the grid horizontally around canvas center
+                const totalRowWidth = (cols - 1) * spacingX;
+                const startX = (rect.width / 2) - (totalRowWidth / 2);
+                const startY = isMobile ? 150 : 180;
+
+                // Slight organic offset so it feels natural
+                const jitterX = ((index * 17) % 12) - 6;
+                const jitterY = ((index * 23) % 12) - 6;
+
+                return {
+                    x: startX + col * spacingX + jitterX,
+                    y: startY + row * spacingY + jitterY
+                };
+            }
+
+            function autoFocusCamera(node) {
+                const rect = container.getBoundingClientRect();
+                const screenY = node.y * camera.zoom + camera.y;
+                if (screenY > rect.height - 180) {
+                    camera.y -= 180;
+                }
+            }
+
+            function updateEmptyState() {
+                if (nodes.length > 0) {
+                    emptyHint.classList.add('opacity-0');
+                } else {
+                    emptyHint.classList.remove('opacity-0');
+                }
+            }
+
+            // ==========================================
+            // 4. MINIMALIST LINE-ART VECTOR RENDERER
+            // ==========================================
+            function drawMinimalistIcon(node) {
+                const { x, y, type, progress, seed, label } = node;
+                const p = Math.min(1, progress);
+                if (p <= 0) return;
+
+                // Base rough options: clean black ink, minimalist strokes
+                const opts = {
+                    stroke: '#111111',
+                    strokeWidth: 2,
+                    roughness: 1.15,
+                    bowing: 1.1,
+                    seed: seed
+                };
+
+                const thinOpts = {
+                    ...opts,
+                    strokeWidth: 1.5,
+                    roughness: 0.9
+                };
+
+                ctx.save();
+                // Subtle scale-in + ink fade effect
+                const scale = 0.85 + 0.15 * easeOutCubic(p);
+                ctx.translate(x, y);
+                ctx.scale(scale, scale);
+                ctx.globalAlpha = Math.min(1, p * 1.4);
+
+                switch (type) {
+                    case 'idea':
+                        // Minimalist Lightbulb
+                        rc.circle(0, -14, 44, opts);
+                        rc.line(-10, 6, 10, 6, opts);
+                        rc.line(-8, 12, 8, 12, opts);
+                        rc.line(-5, 18, 5, 18, opts);
+                        // Filament
+                        rc.path('M -6 -8 Q 0 -18 6 -8', thinOpts);
+                        // Rays (appear in second half of animation)
+                        if (p > 0.5) {
+                            rc.line(0, -44, 0, -52, thinOpts);
+                            rc.line(-28, -32, -35, -38, thinOpts);
+                            rc.line(28, -32, 35, -38, thinOpts);
+                            rc.line(-34, -12, -43, -12, thinOpts);
+                            rc.line(34, -12, 43, -12, thinOpts);
+                        }
+                        break;
+
+                    case 'team':
+                        // Minimalist Group of People (Center + Left/Right)
+                        rc.circle(0, -22, 20, opts);
+                        rc.path('M -20 14 C -20 -4, 20 -4, 20 14 Z', opts);
+                        if (p > 0.45) {
+                            rc.circle(-24, -16, 14, thinOpts);
+                            rc.path('M -38 14 C -38 2, -16 2, -16 14', thinOpts);
+                            rc.circle(24, -16, 14, thinOpts);
+                            rc.path('M 16 14 C 16 2, 38 2, 38 14', thinOpts);
+                        }
+                        break;
+
+                    case 'growth':
+                        // Minimalist Axes + Rising Trend Line
+                        rc.line(-32, -32, -32, 20, opts);
+                        rc.line(-32, 20, 34, 20, opts);
+                        if (p > 0.35) {
+                            rc.path('M -26 12 L -8 -2 L 6 4 L 26 -24', { ...opts, strokeWidth: 2.4 });
+                            // Arrow tip
+                            rc.line(26, -24, 15, -23, opts);
+                            rc.line(26, -24, 25, -13, opts);
+                        }
+                        break;
+
+                    case 'money':
+                        // Minimalist Coin / Dollar / Value Circle
+                        rc.circle(0, -6, 52, opts);
+                        rc.circle(0, -6, 42, thinOpts);
+                        if (p > 0.4) {
+                            // Stylized S / $ vertical bar
+                            rc.line(0, -24, 0, 12, opts);
+                            rc.path('M 9 -16 C -10 -20, -10 -6, 0 -6 C 10 -6, 10 8, -9 4', { ...opts, strokeWidth: 2.2 });
+                        }
+                        break;
+
+                    case 'server':
+                        // Minimalist Stacked Server / System Nodes
+                        rc.rectangle(-30, -32, 60, 18, opts);
+                        rc.circle(-20, -23, 4, thinOpts);
+                        rc.line(-10, -23, 18, -23, thinOpts);
+                        if (p > 0.4) {
+                            rc.rectangle(-30, -8, 60, 18, opts);
+                            rc.circle(-20, 1, 4, thinOpts);
+                            rc.line(-10, 1, 18, 1, thinOpts);
+                        }
+                        if (p > 0.7) {
+                            rc.line(0, 10, 0, 20, opts);
+                            rc.line(-22, 20, 22, 20, opts);
+                        }
+                        break;
+
+                    case 'database':
+                        // Minimalist Cylinder Database
+                        rc.ellipse(0, -24, 52, 16, opts);
+                        rc.line(-26, -24, -26, 12, opts);
+                        rc.line(26, -24, 26, 12, opts);
+                        rc.path('M -26 12 A 26 8 0 0 0 26 12', opts);
+                        if (p > 0.5) {
+                            rc.path('M -26 -6 A 26 8 0 0 0 26 -6', thinOpts);
+                        }
+                        break;
+
+                    case 'target':
+                        // Minimalist Concentric Target + Dart
+                        rc.circle(0, -6, 54, opts);
+                        if (p > 0.35) rc.circle(0, -6, 32, thinOpts);
+                        if (p > 0.6) {
+                            rc.circle(0, -6, 10, opts);
+                            rc.line(14, -20, 34, -40, opts);
+                            rc.line(14, -20, 22, -20, thinOpts);
+                            rc.line(14, -20, 14, -28, thinOpts);
+                        }
+                        break;
+
+                    case 'warning':
+                        // Minimalist Triangle Exclamation
+                        rc.polygon([[0, -34], [-32, 18], [32, 18]], opts);
+                        if (p > 0.45) {
+                            rc.line(0, -14, 0, 2, { ...opts, strokeWidth: 2.5 });
+                            rc.circle(0, 10, 3, opts);
+                        }
+                        break;
+
+                    case 'time':
+                        // Minimalist Analog Clock
+                        rc.circle(0, -6, 54, opts);
+                        if (p > 0.45) {
+                            rc.line(0, -6, 0, -24, opts);
+                            rc.line(0, -6, 14, -6, opts);
+                            rc.circle(0, -6, 3, opts);
+                        }
+                        break;
+
+                    case 'globe':
+                        // Minimalist Wireframe Globe
+                        rc.circle(0, -6, 54, opts);
+                        if (p > 0.4) {
+                            rc.ellipse(0, -6, 26, 54, thinOpts);
+                            rc.line(-27, -6, 27, -6, thinOpts);
+                        }
+                        break;
+
+                    case 'security':
+                        // Minimalist Shield / Padlock
+                        rc.path('M 0 -34 L 26 -24 L 26 -2 C 26 14, 0 24, 0 24 C 0 24, -26 14, -26 -2 L -26 -24 Z', opts);
+                        if (p > 0.5) {
+                            rc.path('M -10 -4 L -2 4 L 12 -12', { ...opts, strokeWidth: 2.3 });
+                        }
+                        break;
+
+                    case 'check':
+                        // Minimalist Circle Checkmark
+                        rc.circle(0, -6, 52, opts);
+                        if (p > 0.4) {
+                            rc.path('M -14 -6 L -4 6 L 16 -16', { ...opts, strokeWidth: 2.5 });
+                        }
+                        break;
+
+                    default:
+                        // Minimalist Concept Box / Note Card
+                        rc.rectangle(-42, -26, 84, 42, opts);
+                        rc.line(-30, -12, 22, -12, thinOpts);
+                        rc.line(-30, 0, 10, 0, thinOpts);
+                        break;
+                }
+
+                // Draw Hand-lettered Label underneath
+                if (p > 0.3) {
+                    ctx.font = '600 16px "Patrick Hand", cursive, sans-serif';
+                    ctx.fillStyle = '#111111';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(label, 0, 32);
+                }
+
+                ctx.restore();
+            }
+
+            /**
+             * Draws a hand-drawn arrow connecting two nodes
+             */
+            function drawConnector(conn) {
+                const fromNode = nodes.find(n => n.id === conn.fromId);
+                const toNode = nodes.find(n => n.id === conn.toId);
+                if (!fromNode || !toNode) return;
+
+                const p = Math.min(1, conn.progress);
+                if (p <= 0) return;
+
+                const dx = toNode.x - fromNode.x;
+                const dy = toNode.y - fromNode.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < 95) return;
+
+                const angle = Math.atan2(dy, dx);
+                const padStart = 52;
+                const padEnd = 52;
+
+                const x1 = fromNode.x + Math.cos(angle) * padStart;
+                const y1 = fromNode.y + Math.sin(angle) * padStart;
+                const fullX2 = toNode.x - Math.cos(angle) * padEnd;
+                const fullY2 = toNode.y - Math.sin(angle) * padEnd;
+
+                // Interpolate endpoint based on animation progress
+                const curX2 = x1 + (fullX2 - x1) * easeOutCubic(p);
+                const curY2 = y1 + (fullY2 - y1) * easeOutCubic(p);
+
+                const opts = {
+                    stroke: '#27272a',
+                    strokeWidth: 1.6,
+                    roughness: 1.2,
+                    seed: conn.seed
+                };
+
+                // Slight curved arc for natural whiteboard flow
+                const midX = (x1 + curX2) / 2 - Math.sin(angle) * 10;
+                const midY = (y1 + curY2) / 2 + Math.cos(angle) * 10;
+
+                rc.path(`M ${x1} ${y1} Q ${midX} ${midY} ${curX2} ${curY2}`, opts);
+
+                // Arrowhead once line reaches >= 85%
+                if (p >= 0.85) {
+                    const headLen = 10;
+                    const endAngle = Math.atan2(curY2 - midY, curX2 - midX);
+                    const ax1 = curX2 - headLen * Math.cos(endAngle - Math.PI / 6);
+                    const ay1 = curY2 - headLen * Math.sin(endAngle - Math.PI / 6);
+                    const ax2 = curX2 - headLen * Math.cos(endAngle + Math.PI / 6);
+                    const ay2 = curY2 - headLen * Math.sin(endAngle + Math.PI / 6);
+
+                    rc.line(curX2, curY2, ax1, ay1, opts);
+                    rc.line(curX2, curY2, ax2, ay2, opts);
+                }
+            }
+
+            function easeOutCubic(t) {
+                return 1 - Math.pow(1 - t, 3);
+            }
+
+            // ==========================================
+            // 5. MAIN ANIMATION RENDER LOOP
+            // ==========================================
+            let lastTime = performance.now();
+
+            function renderLoop(now) {
+                const dt = (now - lastTime) / 1000;
+                lastTime = now;
+
+                const rect = container.getBoundingClientRect();
+                ctx.clearRect(0, 0, rect.width, rect.height);
+
+                ctx.save();
+                ctx.translate(camera.x, camera.y);
+                ctx.scale(camera.zoom, camera.zoom);
+
+                // Animate & render connectors
+                connectors.forEach(conn => {
+                    if (conn.progress < 1) {
+                        conn.progress = Math.min(1, conn.progress + dt * 2.4);
+                    }
+                    drawConnector(conn);
+                });
+
+                // Animate & render line-art nodes
+                nodes.forEach(node => {
+                    if (node.progress < 1) {
+                        node.progress = Math.min(1, node.progress + dt * 2.2);
+                    }
+                    drawMinimalistIcon(node);
+                });
+
+                ctx.restore();
+
+                requestAnimationFrame(renderLoop);
+            }
+            requestAnimationFrame(renderLoop);
+
+            // ==========================================
+            // 6. WEB SPEECH API (LIVE MICROPHONE)
+            // ==========================================
+            function initSpeechRecognition() {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    liveInterimText.textContent = 'Browser tidak mendukung Web Speech API. Gunakan input teks di bawah.';
+                    return null;
+                }
+
+                const recog = new SpeechRecognition();
+                recog.continuous = true;
+                recog.interimResults = true;
+                recog.lang = currentLang;
+
+                recog.onstart = () => {
+                    isListening = true;
+                    micBtn.classList.add('mic-active', 'bg-zinc-900', 'text-white');
+                    micBtn.classList.remove('bg-zinc-100', 'text-zinc-900');
+                    liveInterimText.textContent = currentLang === 'id-ID' ? 'Mendengarkan... silakan bicara' : 'Listening... speak now';
+                };
+
+                recog.onresult = (event) => {
+                    let interimTranscript = '';
+                    let finalTranscript = '';
+
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        const transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            finalTranscript += transcript;
+                        } else {
+                            interimTranscript += transcript;
+                        }
+                    }
+
+                    if (interimTranscript) {
+                        liveInterimText.textContent = `"${interimTranscript}..."`;
+                    }
+
+                    if (finalTranscript) {
+                        liveInterimText.textContent = `✓ "${finalTranscript.trim()}"`;
+                        processTranscript(finalTranscript);
+                    }
+                };
+
+                recog.onerror = (event) => {
+                    if (event.error === 'not-allowed') {
+                        showToast('Izin mikrofon ditolak. Gunakan kotak teks untuk mencoba.');
+                        stopListening();
+                    } else if (event.error !== 'no-speech') {
+                        liveInterimText.textContent = `Mic status: ${event.error}`;
+                    }
+                };
+
+                recog.onend = () => {
+                    // Auto-restart if still in active presentation mode
+                    if (isListening) {
+                        try {
+                            recog.start();
+                        } catch (e) {
+                            stopListening();
+                        }
+                    }
+                };
+
+                return recog;
+            }
+
+            function startListening() {
+                if (!recognition) {
+                    recognition = initSpeechRecognition();
+                }
+                if (!recognition) {
+                    showToast('Browser tidak mendukung input suara langsung.');
+                    return;
+                }
+                recognition.lang = currentLang;
+                try {
+                    recognition.start();
+                } catch (e) {
+                    // Already started
+                }
+            }
+
+            function stopListening() {
+                isListening = false;
+                micBtn.classList.remove('mic-active', 'bg-zinc-900', 'text-white');
+                micBtn.classList.add('bg-zinc-100', 'text-zinc-900');
+                liveInterimText.textContent = 'Mikrofon dijeda.';
+                if (recognition) {
+                    try {
+                        recognition.stop();
+                    } catch (e) {}
+                }
+            }
+
+            micBtn.addEventListener('click', () => {
+                if (isListening) {
+                    stopListening();
+                } else {
+                    startListening();
+                }
+            });
+
+            // Language Toggle (ID / EN)
+            langToggleBtn.addEventListener('click', () => {
+                currentLang = currentLang === 'id-ID' ? 'en-US' : 'id-ID';
+                langToggleBtn.textContent = currentLang === 'id-ID' ? '🇮🇩 ID' : '🇺🇸 EN';
+                showToast(`Bahasa suara: ${currentLang === 'id-ID' ? 'Indonesia' : 'English'}`);
+                if (isListening) {
+                    stopListening();
+                    setTimeout(startListening, 250);
+                }
+            });
+
+            // ==========================================
+            // 7. MANUAL TEXT & SAMPLE PROMPT HANDLERS
+            // ==========================================
+            document.getElementById('manualForm').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const val = manualInput.value.trim();
+                if (!val) return;
+                liveInterimText.textContent = `✓ "${val}"`;
+                processTranscript(val);
+                manualInput.value = '';
+            });
+
+            document.getElementById('sendTextBtn').addEventListener('click', () => {
+                const val = manualInput.value.trim();
+                if (!val) return;
+                liveInterimText.textContent = `✓ "${val}"`;
+                processTranscript(val);
+                manualInput.value = '';
+            });
+
+            document.querySelectorAll('.sample-pill').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const sampleText = btn.getAttribute('data-text');
+                    liveInterimText.textContent = `✓ "${sampleText}"`;
+                    processTranscript(sampleText);
+                });
+            });
+
+            // ==========================================
+            // 8. CAMERA PAN / ZOOM & TOOLBAR CONTROLS
+            // ==========================================
+            container.addEventListener('mousedown', (e) => {
+                camera.isDragging = true;
+                camera.lastMouseX = e.clientX;
+                camera.lastMouseY = e.clientY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!camera.isDragging) return;
+                camera.x += e.clientX - camera.lastMouseX;
+                camera.y += e.clientY - camera.lastMouseY;
+                camera.lastMouseX = e.clientX;
+                camera.lastMouseY = e.clientY;
+            });
+
+            window.addEventListener('mouseup', () => {
+                camera.isDragging = false;
+            });
+
+            // Touch pan support
+            container.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    camera.isDragging = true;
+                    camera.lastMouseX = e.touches[0].clientX;
+                    camera.lastMouseY = e.touches[0].clientY;
+                }
+            }, { passive: true });
+
+            container.addEventListener('touchmove', (e) => {
+                if (!camera.isDragging || e.touches.length !== 1) return;
+                camera.x += e.touches[0].clientX - camera.lastMouseX;
+                camera.y += e.touches[0].clientY - camera.lastMouseY;
+                camera.lastMouseX = e.touches[0].clientX;
+                camera.lastMouseY = e.touches[0].clientY;
+            }, { passive: true });
+
+            container.addEventListener('touchend', () => {
+                camera.isDragging = false;
+            });
+
+            // Mouse wheel zoom
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+                const newZoom = Math.min(2.5, Math.max(0.4, camera.zoom * zoomFactor));
+                camera.zoom = newZoom;
+            }, { passive: false });
+
+            // Grid toggle
+            document.getElementById('gridToggleBtn').addEventListener('click', () => {
+                showGrid = !showGrid;
+                container.classList.toggle('bg-dot-grid', showGrid);
+            });
+
+            // Reset camera view
+            document.getElementById('resetViewBtn').addEventListener('click', () => {
+                camera.x = 0;
+                camera.y = 0;
+                camera.zoom = 1;
+                showToast('Kamera dikembalikan ke tengah');
+            });
+
+            // Undo last element
+            document.getElementById('undoBtn').addEventListener('click', () => {
+                if (nodes.length === 0) return;
+                const removed = nodes.pop();
+                connectors = connectors.filter(c => c.toId !== removed.id && c.fromId !== removed.id);
+                updateEmptyState();
+            });
+
+            // Clear scene
+            function clearScene() {
+                nodes = [];
+                connectors = [];
+                camera.x = 0;
+                camera.y = 0;
+                camera.zoom = 1;
+                updateEmptyState();
+            }
+
+            document.getElementById('clearBtn').addEventListener('click', () => {
+                clearScene();
+                showToast('Kanvas dibersihkan');
+            });
+
+            // Export PNG with clean white paper background
+            document.getElementById('exportBtn').addEventListener('click', () => {
+                if (nodes.length === 0) {
+                    showToast('Kanvas masih kosong');
+                    return;
+                }
+                const exportCanvas = document.createElement('canvas');
+                exportCanvas.width = canvas.width;
+                exportCanvas.height = canvas.height;
+                const eCtx = exportCanvas.getContext('2d');
+
+                // Fill solid white background
+                eCtx.fillStyle = '#ffffff';
+                eCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+                eCtx.drawImage(canvas, 0, 0);
+
+                const link = document.createElement('a');
+                link.download = `sketchtalk-${Date.now()}.png`;
+                link.href = exportCanvas.toDataURL('image/png');
+                link.click();
+                showToast('Gambar PNG berhasil diunduh');
+            });
+        </script>
+    </body>
+    </html>

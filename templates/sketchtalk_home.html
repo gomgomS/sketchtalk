@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}SketchTalk — {{ data.site_name }}{% endblock %}
+{% block og_title %}SketchTalk — Voice to Line Art{% endblock %}
+{% block og_description %}Bicara di satu perangkat, ilustrasi tampil di layar lain.{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-xl py-10 text-center">
+
+    <div class="mx-auto mb-5 flex h-14 w-14 items-center justify-center border-2 border-black">
+        <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+            <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+        </svg>
+    </div>
+
+    <h1 class="text-4xl font-extrabold tracking-tight">SketchTalk</h1>
+    <p class="mt-3 text-sm leading-relaxed text-mute">
+        Presentasi real-time: ucapan menjadi ilustrasi line-art minimalis.
+        Satu perangkat menjadi <b>mikrofon</b>, perangkat lain menjadi
+        <b>layar presentasi</b> — keduanya tersinkron lewat kode room.
+    </p>
+
+    {% if data.form_error %}
+    <p class="mt-6 border border-danger px-3 py-2 text-sm text-danger">{{ data.form_error }}</p>
+    {% endif %}
+
+    <div class="mt-10 space-y-6 text-left">
+
+        <form method="post" action="{{ url_for('sketchtalk_blueprint.create_room') }}" class="block border border-line p-6">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-widest text-mute">1 &middot; buat room presentasi</h2>
+            <p class="mt-2 text-sm text-mute">Membuat kode room baru, lalu membuka layar presentasi.</p>
+            <input type="hidden" name="csrf_token" value="{{ data.csrf_token }}">
+            <button type="submit" class="btn-primary mt-4">Mulai Presentasi</button>
+        </form>
+
+        <form method="get" action="/mic" class="block border border-line p-6">
+            <h2 class="font-mono text-xs font-semibold uppercase tracking-widest text-mute">2 &middot; gabung sebagai mikrofon</h2>
+            <p class="mt-2 text-sm text-mute">Masukkan kode room yang tampil di layar presentasi.</p>
+            <input type="text" name="code" maxlength="6" placeholder="KODE ROOM" autocomplete="off"
+                   class="mt-4 w-40 border border-line px-3 py-2 font-mono text-sm uppercase tracking-[0.2em] focus:border-black focus:outline-none">
+            <button type="submit" class="btn-primary mt-4">Buka Mikrofon</button>
+        </form>
+
+    </div>
+
+    <p class="mt-10 font-mono text-xs uppercase tracking-widest text-mute">
+        <a href="{{ url_for('sketchtalk_blueprint.stage_new') }}" class="underline">layar tunggal (tanpa room)</a>
+        &middot;
+        <a href="/sample" class="underline">sample module</a>
+    </p>
+
+</section>
+{% endblock %}

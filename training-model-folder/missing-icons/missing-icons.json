@@ -1,0 +1,12 @@
+{
+  "updated": "2026-11-17 17:49:26",
+  "missing": {
+    "droplet": {
+      "count": 1,
+      "resolved": "sticky-note",
+      "example": "air minum"
+    }
+  },
+  "fuzzy": {},
+  "how_to_fix": "tambahkan ikon baru di static/sketchtalk/sketchtalk-icons.js (nama = key), lalu reload. Whitelist server menyesuaikan otomatis."
+}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Mikrofon · {{ data.room }} — SketchTalk{% endblock %}
+{% block og_title %}SketchTalk Mic{% endblock %}
+{% block og_description %}Halaman mikrofon presentasi SketchTalk.{% endblock %}
+
+{% block content %}
+<div class="sk-micpage mx-auto flex min-h-[80vh] max-w-md flex-col items-center justify-center gap-6 py-10 text-center">
+
+    <div>
+        <p class="font-mono text-xs uppercase tracking-[0.25em] text-mute">room presentasi</p>
+        <p class="mt-1 font-mono text-3xl font-semibold tracking-[0.3em]">{{ data.room }}</p>
+    </div>
+
+    <button id="sk-mic" class="sk-mic sk-mic-big" title="Mulai / hentikan mikrofon">
+        <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+    </button>
+
+    <p id="sk-interim" class="min-h-5 w-full truncate font-mono text-xs text-mute">Tekan tombol mikrofon lalu bicara&hellip;</p>
+
+    <div class="flex items-center gap-3">
+        <span id="sk-engine" class="font-mono text-[11px] uppercase tracking-widest text-mute">engine: &hellip;</span>
+        <span class="text-line">|</span>
+        <span id="sk-lang" class="sk-lang" title="Ganti bahasa suara">ID</span>
+    </div>
+
+    <p id="sk-stage" class="font-mono text-[11px] uppercase tracking-widest text-mute">layar: menunggu</p>
+
+    <div id="sk-samples" class="flex flex-wrap items-center justify-center gap-1.5">
+        <button class="sk-sample" data-text="Kemarin gua ke German">Ke German</button>
+        <button class="sk-sample" data-text="Kemarin gua naik kereta ke Bandung">Kereta Bandung</button>
+        <button class="sk-sample" data-text="Waktu gua masih sekolah">Sekolah</button>
+        <button class="sk-sample" data-text="Sebentar, BERHENTI dulu ya">BERHENTI</button>
+        <button class="sk-sample" data-text="Oke LANJUTKAN presentasinya">LANJUTKAN</button>
+    </div>
+
+    <p class="text-xs leading-relaxed text-mute">
+        Perangkat ini hanya mengirim suara. Ilustrasi tampil di layar room
+        <b class="font-mono">{{ data.room }}</b>. Ucapkan
+        <b class="font-mono">&ldquo;BERHENTI&rdquo;</b> untuk jeda dan
+        <b class="font-mono">&ldquo;LANJUTKAN&rdquo;</b> untuk lanjut.
+    </p>
+
+</div>
+
+<script>
+    window.SK_CONFIG = {
+        csrfToken: "{{ data.csrf_token }}",
+        interpretUrl: "{{ url_for('sketchtalk_blueprint.interpret') }}",
+        stateUrl: "{{ url_for('sketchtalk_blueprint.room_state', room=data.room) }}",
+        room: "{{ data.room }}",
+        aiEnabled: {{ "true" if data.ai_enabled else "false" }},
+        aiProvider: "{{ data.ai_provider }}",
+        aiModel: "{{ data.ai_model }}"
+    };
+</script>
+<script src="{{ url_for('static', filename='sketchtalk/sketchtalk-mic.js') }}" defer></script>
+{% endblock %}

@@ -1,0 +1,11 @@
+# SLAPZ (slapz102) runtime dependencies.
+# Python >= 3.8 (developed and tested on 3.11 / 3.13).
+#
+# Everything else the framework uses (werkzeug, jinja2, bson, ...)
+# comes in as transitive dependencies of these two packages.
+
+Flask>=3.0,<4
+pymongo>=4.6,<5
+# SketchTalk Visual Director (optional at runtime: without it the module
+# falls back to the offline keyword parser).
+anthropic>=1.0.0,<2.0.0
