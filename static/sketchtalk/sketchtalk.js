@@ -562,40 +562,34 @@
         if (action === 'IGNORE') {
             return;
         }
-        // Only committed (final) results create undo points.
-        if (!opts.partial) {
-            pushUndo();
-        }
-        if (action === 'CLEAR_AND_DRAW') {
-            for (var i = 0; i < state.nodes.length; i++) {
-                state.nodes[i].tAlpha = 0;
-                state.dying.push(state.nodes[i]);
-            }
-            state.nodes = [];
-            state.edges = [];
-        }
         var objects = Array.isArray(dir.objects) ? dir.objects.slice(0, 4) : [];
         var beat = ['scene', 'poster', 'stat', 'duo'].indexOf(dir.beat) >= 0 ? dir.beat : 'scene';
         var headline = (dir.headline || '').trim();
         var kicker = (dir.kicker || '').trim();
-        var hero = (dir.hero_stat || '').trim();
-        if (beat === 'poster' && headline === '' && objects.length > 0) {
-            headline = objects[0].label || '';
+        var hero = dir.hero_stat == null ? '' : String(dir.hero_stat).trim();
+        if (headline === '' && (beat === 'poster' || beat === 'stat' || beat === 'duo')) {
+            headline = (dir.topic_summary || '').trim();
         }
         if (beat === 'stat' && hero === '' && objects.length > 0) {
             hero = objects[0].highlight_stat || '';
         }
-        if (beat === 'poster' && headline === '') {
-            beat = 'scene';
+        if (beat === 'poster' && headline === '' && objects.length > 0) {
+            headline = objects[0].label || '';
         }
-        if (beat === 'stat' && hero === '') {
-            beat = 'scene';
-        }
-        if (beat === 'duo' && (objects.length === 0 || headline === '')) {
-            beat = objects.length === 0 && headline !== '' ? 'poster' : 'scene';
-        }
-        var typeOnly = (beat === 'poster' || beat === 'stat') && objects.length === 0;
-        if (objects.length === 0 && !typeOnly) {
+        var canDraw = objects.length > 0 ||
+            (beat === 'poster' && headline !== '') ||
+            (beat === 'stat' && (hero !== '' || headline !== '')) ||
+            (beat === 'duo' && headline !== '' && objects.length > 0);
+        // Only the explicit "hapus layar" command may bring the empty prompt back.
+        // Any other slide with nothing to draw is dropped, so the picture stays
+        // while the speaker is still talking.
+        if (dir.cleared === true) {
+            for (var c = 0; c < state.nodes.length; c++) {
+                state.nodes[c].tAlpha = 0;
+                state.dying.push(state.nodes[c]);
+            }
+            state.nodes = [];
+            state.edges = [];
             state.topic = '';
             state.timeContext = 'none';
             state.sceneDesc = '';
@@ -607,6 +601,20 @@
             updateEmptyState();
             autofit();
             return;
+        }
+        if (!canDraw) {
+            return;
+        }
+        if (!opts.partial) {
+            pushUndo();
+        }
+        if (action === 'CLEAR_AND_DRAW') {
+            for (var i = 0; i < state.nodes.length; i++) {
+                state.nodes[i].tAlpha = 0;
+                state.dying.push(state.nodes[i]);
+            }
+            state.nodes = [];
+            state.edges = [];
         }
         var layout = ['single', 'flow', 'hub_spoke', 'comparison'].indexOf(dir.layout) >= 0 ? dir.layout : 'single';
         if (objects.length === 1 && layout === 'flow') {

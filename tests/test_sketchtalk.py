@@ -406,6 +406,40 @@ def test_unknown_beat_falls_back_to_scene():
 # end def
 
 
+def test_blank_slide_does_not_clear_the_screen():
+    from sketchtalk.sketchtalk_proc import _hold_screen_if_blank
+    kept = _hold_screen_if_blank({
+        "action": "CLEAR_AND_DRAW",
+        "topic_summary": "",
+        "layout": "single",
+        "beat": "scene",
+        "headline": "",
+        "hero_stat": None,
+        "objects": []
+    })
+    assert kept["action"] == "IGNORE"
+
+    shown = _hold_screen_if_blank({
+        "action": "CLEAR_AND_DRAW",
+        "topic_summary": "Tiga",
+        "layout": "single",
+        "beat": "stat",
+        "headline": "Tiga pokok",
+        "hero_stat": "3",
+        "objects": []
+    })
+    assert shown["action"] == "CLEAR_AND_DRAW"
+
+    cleared = _hold_screen_if_blank({
+        "action": "CLEAR_AND_DRAW",
+        "topic_summary": "",
+        "objects": [],
+        "cleared": True
+    })
+    assert cleared["action"] == "CLEAR_AND_DRAW"
+# end def
+
+
 def test_long_greeting_becomes_illustration(client):
     res = _interpret(client, "Selamat pagi teman-teman, hari ini kita akan mulai presentasi ya")
     assert res.status_code == 200

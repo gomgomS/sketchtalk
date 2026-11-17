@@ -1132,6 +1132,40 @@ def active_model():
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 
+def _hold_screen_if_blank(directive):
+    # A CLEAR with nothing to draw fades the slide and brings back the
+    # "mulai berbicara" prompt while the speaker is still going. Only an
+    # explicit clear command (cleared=True) may blank the screen.
+    if not isinstance(directive, dict):
+        return directive
+    # end if
+    if directive.get("cleared") == True:
+        return directive
+    # end if
+    if directive.get("action") not in ["CLEAR_AND_DRAW", "UPDATE"]:
+        return directive
+    # end if
+    objects = directive.get("objects") or []
+    if len(objects) > 0:
+        return directive
+    # end if
+    beat = directive.get("beat") or ""
+    headline = directive.get("headline") or ""
+    hero = directive.get("hero_stat") or ""
+    if beat == "poster" and headline != "":
+        return directive
+    # end if
+    if beat == "stat" and (hero != "" or headline != ""):
+        return directive
+    # end if
+    if beat == "duo" and headline != "":
+        return directive
+    # end if
+    print("[SketchTalk] blank slide held: nothing to draw, keeping the current picture", flush=True)
+    directive["action"] = "IGNORE"
+    return directive
+# end def
+
 def _slide_brief(slide):
     if not isinstance(slide, dict):
         return "beat=none, kicker=, headline="
@@ -1444,7 +1478,7 @@ class sketchtalk_proc:
         # end if
         if _contains_any(lower, CLEAR_PHRASES):
             print("[SketchTalk] command: CLEAR keyword matched", flush=True)
-            return {"status": "SUCCESS", "engine": "command", "directive": {"action": "CLEAR_AND_DRAW", "topic_summary": "", "layout": "single", "objects": []}}
+            return {"status": "SUCCESS", "engine": "command", "directive": {"action": "CLEAR_AND_DRAW", "topic_summary": "", "layout": "single", "objects": [], "cleared": True}}
         # end if
 
         greeting = _match_greeting(lower)
@@ -1497,13 +1531,14 @@ class sketchtalk_proc:
         if directive == None:
             directive = _fallback_director(transcript, canvas_objects)
         # end if
+        directive = _hold_screen_if_blank(directive)
 
         elapsed = round(time.time() - started, 2)
         icons = []
         for obj in directive.get("objects", []):
             icons.append(str(obj.get("icon")))
         # end for
-        print("[SketchTalk] result: engine=" + engine + " action=" + str(directive.get("action")) + " beat=" + str(directive.get("beat")) + " layout=" + str(directive.get("layout")) + " time=" + str(directive.get("time_context")) + " objects=" + str(icons) + " (" + str(elapsed) + "s)", flush=True)
+        print("[SketchTalk] result: engine=" + engine + " action=" + str(directive.get("action")) + " beat=" + str(directive.get("beat")) + " headline='" + str(directive.get("headline") or "") + "' hero='" + str(directive.get("hero_stat") or "") + "' layout=" + str(directive.get("layout")) + " time=" + str(directive.get("time_context")) + " objects=" + str(icons) + " (" + str(elapsed) + "s)", flush=True)
         # Per-object text diagnostics: the browser card wraps labels wider
         # than ~196px onto two fixed lines and clamps labels over 32 chars.
         for obj in directive.get("objects", []):
