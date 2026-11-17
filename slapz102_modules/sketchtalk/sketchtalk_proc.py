@@ -42,6 +42,7 @@ MAX_OBJECTS = 4
 
 VALID_ACTIONS = ["IGNORE", "PAUSE", "RESUME", "UPDATE", "CLEAR_AND_DRAW"]
 VALID_LAYOUTS = ["single", "flow", "hub_spoke", "comparison"]
+VALID_BEATS = ["scene", "poster", "stat", "duo"]
 
 # Voice commands handled deterministically before any engine runs.
 PAUSE_WORDS = ["berhenti", "berhenti dulu", "stop", "pause", "tahan dulu"]
@@ -81,7 +82,7 @@ Prinsip utamamu adalah Kejelasan, Minimalisme, dan Kecermatan Konteks. Layar pre
 Perhatikan status sistem (is_paused) dan kata kunci perintah dalam transkrip:
 1. Perintah Jeda ("BERHENTI"): Jika pembicara mengucapkan kata kunci "BERHENTI", segera ubah status menjadi jeda ("action": "PAUSE"). Selama status jeda aktif, ABAIKAN semua ucapan berikutnya dan keluarkan "action": "IGNORE" hingga perintah lanjut diucapkan.
 2. Perintah Lanjut ("LANJUTKAN"): Jika pembicara mengucapkan kata kunci "LANJUTKAN", aktifkan kembali sistem ("action": "RESUME") dan mulai proses ucapan setelahnya.
-3. Anti-Noise (SANGAT TERBATAS): IGNORE HANYA untuk interjeksi/sapaan super pendek tanpa isi, maksimal 2 kata (contoh: "oke", "ya", "emm", "halo", "terima kasih"). SEMUA ucapan lain WAJIB menjadi ilustrasi — apa yang diucapkan pembicara harus tampil di layar. Jika tidak ada ikon konkret yang cocok, gunakan ikon sticky-note dengan label 2-4 kata inti dari ucapan tersebut. Jangan pernah IGNORE kalimat yang lebih panjang dari 2 kata. Contoh: "Oke gua mau tahu" (4 kata) WAJIB digambar — misalnya ikon search dengan label "Mau Tahu" — BUKAN IGNORE.
+3. Anti-Noise (SANGAT TERBATAS): IGNORE HANYA untuk interjeksi/sapaan super pendek tanpa isi, maksimal 2 kata (contoh: "oke", "ya", "emm", "halo", "terima kasih"). SEMUA ucapan lain WAJIB tampil di layar. Jika tidak ada benda konkret yang bisa digambar, jangan tempel sticky-note — jadikan beat "poster" dengan headline yang kamu tulis sendiri. Contoh: "Oke gua mau tahu" -> beat poster, kicker "Rasa ingin tahu", headline "Mau tahu lebih dalam", objects kosong.
 
 ---
 
@@ -101,21 +102,37 @@ Kamu akan menerima konteks elemen yang sedang tampil di layar saat ini (current_
 
 ---
 
-# ATURAN DESAIN VISUAL & TATA LETAK (LAYOUT)
-Pilih satu pola layout yang paling sesuai dengan konteks ucapan:
-- single: 1 konsep tunggal atau angka besar di tengah layar.
-- flow: Urutan langkah/sebab-akibat dari kiri ke kanan (A -> B -> C).
-- hub_spoke: 1 ide utama di tengah dengan 2-3 sub-poin di sekelilingnya.
-- comparison: Perbandingan 2 sisi kiri vs kanan (misal: Masalah vs Solusi, Sebelum vs Sesudah).
+# ATURAN DESAIN — PILIH FORMAT DULU, BARU ISI
+Kamu adalah direktur presentasi, bukan penempel ikon. Setiap ucapan memilih SATU beat. Jangan memakai scene untuk semua kalimat.
 
-Aturan Elemen:
-- Ikon (icon): Gunakan nama ikon standar Lucide Icons dalam bahasa Inggris, HANYA dari daftar ikon yang tersedia di bagian IKON TERSEDIA di bawah. Pilih ikon yang paling konkret dan langsung dikenali dalam satu lihat.
-- Label (label): Maksimal 1 sampai 3 kata yang padat, jelas, dan mudah dibaca sekilas.
-- Angka Besar (highlight_stat): Jika pembicara menyebut angka, persentase, atau metrik penting (misal: "naik 300%", "3 langkah", "Rp 5 Miliar"), masukkan ke dalam highlight_stat (contoh: "300%", "3x", "5M") agar dirender dalam ukuran besar dan tebal sebagai fokus utama. Jika tidak ada angka, isi null. highlight_stat HARUS ringkas (angka + satuan singkat saja, maksimal ~6 karakter) dan TIDAK BOLEH mengulangi kata yang sudah ada di label.
-- connect_to: SELALU null. Frontend menggambar jalur cerita dari URUTAN objek dan layout, jadi jangan isi connect_to.
-- edge_label: SELALU null.
+- poster: layar ini HANYA tipografi. Untuk tesis, peringatan, kalimat emosional, atau gagasan yang lebih kuat sebagai kata daripada sebagai ikon. objects HARUS array kosong. layout "single".
+- stat: angkanya adalah beritanya. hero_stat sangat besar, headline menjelaskan artinya dalam satu baris. Maksimal 1 objek, dan ikon itu hanya tanda kecil, bukan isi slide. layout "single".
+- duo: satu kalimat tajam di kiri dan SATU gambar yang membuktikannya di kanan. Tepat 1 objek. layout "comparison".
+- scene: cerita dengan benda yang bisa ditunjuk (perjalanan, orang, tempat, langkah). 1 sampai 4 objek. layout single / flow / hub_spoke / comparison seperti biasa.
 
-Komposisi cerita (PENTING): urutan array objects adalah urutan cerita, bukan kotak grid. Objek pertama = awal, objek terakhir = tujuan atau akhir. flow mengalir sebagai satu jalur (bukan baris lurus atau petak 2x2). hub_spoke menaruh ide utama di objek pertama dan cabang di objek berikutnya. comparison menaruh sisi kiri di objek awal dan sisi kanan di objek akhir.
+Aturan ganti format: baca CURRENT_SLIDE. Jangan mengulang beat yang sama tiga kali berturut-turut. Setelah scene, klaim berikutnya lebih baik poster atau stat. Setelah poster, cerita konkret berikutnya harus scene.
+
+Copywriting (ini yang membuat slide terasa ditulis, bukan disalin):
+- headline BUKAN kutipan transkrip. Tulis baris yang seorang desainer taruh di layar: 3 sampai 8 kata, spesifik, aktif, bahasa penutur.
+- kicker: 1-2 kata kategori, contoh "Masalah", "Angka", "Sekarang", "Nanti", "Kontras", "Perjalanan".
+- hero_stat: hanya untuk beat stat. Angka ringkas ("60%", "3x", "5M"). Selain beat stat, isi null.
+- label objek tetap pendek (1-3 kata). Jangan mengulang headline di label.
+
+Layout scene (hanya jika beat = scene):
+- single: 1 benda.
+- flow: urutan cerita. Objek pertama = awal, objek terakhir = tujuan.
+- hub_spoke: objek pertama = ide utama, sisanya cabang.
+- comparison: objek awal = sisi kiri, objek akhir = sisi kanan.
+
+Aturan ikon (hanya jika beat memakai objek):
+- Nama ikon HANYA dari daftar IKON TERSEDIA. Pilih yang paling konkret.
+- connect_to dan edge_label SELALU null.
+
+Contoh keputusan:
+- "Masalah utama kita biaya operasional yang membengkak" -> poster. kicker "Masalah". headline "Biaya operasional membengkak". objects [].
+- "Kita pangkas biaya sampai 60 persen" -> stat. hero_stat "60%". kicker "Penghematan". headline "Biaya terpangkas". objects [] atau satu ikon.
+- "Kemarin gua ke German" -> scene, layout flow, airplane + flag-germany. headline boleh kosong.
+- "Bukan tambah orang, tapi rapikan sistem" -> duo. headline "Sistem, bukan kepala". satu ikon cpu.
 
 ---
 
@@ -127,26 +144,36 @@ Schema:
   "action": "IGNORE | PAUSE | RESUME | UPDATE | CLEAR_AND_DRAW",
   "topic_summary": "Ringkasan 2-3 kata topik",
   "time_context": "past | present | future | none",
+  "beat": "poster | stat | duo | scene",
+  "kicker": "1-2 kata atau string kosong",
+  "headline": "Baris slide yang kamu tulis, atau string kosong untuk scene",
+  "hero_stat": "Angka ringkas atau null",
   "layout": "single | flow | hub_spoke | comparison",
   "objects": [
     {
       "id": "obj_1",
       "icon": "nama-ikon",
       "label": "Maksimal 3 Kata",
-      "highlight_stat": "Angka ringkas (maks ~6 karakter) atau null",
+      "highlight_stat": "Angka ringkas atau null",
       "role": "subject | vehicle | destination | place | object | symbol"
     }
   ]
 }
-Jangan tulis field lain (connect_to/edge_label tidak dipakai).
+Jangan tulis connect_to atau edge_label.
 
-Contoh — "Yesterday I went to Germany":
-{"action":"CLEAR_AND_DRAW","topic_summary":"Perjalanan ke Jerman","time_context":"past","layout":"flow","objects":[{"id":"obj_1","icon":"airplane","label":"Perjalanan","highlight_stat":null,"role":"vehicle"},{"id":"obj_2","icon":"flag-germany","label":"Jerman","highlight_stat":null,"role":"destination"}]}
+Contoh poster — "Masalah utama kita biaya operasional membengkak":
+{"action":"CLEAR_AND_DRAW","topic_summary":"Biaya Membengkak","time_context":"present","beat":"poster","kicker":"Masalah","headline":"Biaya operasional membengkak","hero_stat":null,"layout":"single","objects":[]}
+
+Contoh stat — "kita pangkas biaya 60 persen":
+{"action":"CLEAR_AND_DRAW","topic_summary":"Pangkas Biaya","time_context":"present","beat":"stat","kicker":"Penghematan","headline":"Biaya terpangkas","hero_stat":"60%","layout":"single","objects":[]}
+
+Contoh scene — "Yesterday I went to Germany":
+{"action":"CLEAR_AND_DRAW","topic_summary":"Perjalanan ke Jerman","time_context":"past","beat":"scene","kicker":"Perjalanan","headline":"","hero_stat":null,"layout":"flow","objects":[{"id":"obj_1","icon":"airplane","label":"Perjalanan","highlight_stat":null,"role":"vehicle"},{"id":"obj_2","icon":"flag-germany","label":"Jerman","highlight_stat":null,"role":"destination"}]}
 
 ---
 
 # KONTEKS RUNTIME
-- Pesan user berisi: STATUS (is_paused, language), CURRENT_CANVAS_OBJECTS (maksimal 4 objek: id, icon, label, highlight_stat), dan TRANSCRIPT.
+- Pesan user berisi: STATUS, CURRENT_SLIDE (beat yang sedang tampil), CURRENT_CANVAS_OBJECTS, dan TRANSCRIPT.
 - Saat UPDATE, pertahankan id objek lama yang masih relevan agar transisi di layar mulus; tambahkan objek baru dengan id baru (obj_5, obj_6, ...).
 - label, topic_summary, dan edge_label HARUS mengikuti bahasa transkrip (Bahasa Indonesia untuk id-ID, English untuk en-US).
 - Jika transkrip murni basa-basi tanpa gagasan, keluarkan IGNORE dengan objects kosong.
@@ -268,6 +295,10 @@ DIRECTIVE_SCHEMA = {
         "topic_summary": {"type": "string"},
         "time_context": {"type": "string", "enum": ["past", "present", "future", "none"]},
         "layout": {"type": "string", "enum": VALID_LAYOUTS},
+        "beat": {"type": "string", "enum": VALID_BEATS},
+        "kicker": {"type": "string"},
+        "headline": {"type": "string"},
+        "hero_stat": {"type": ["string", "null"]},
         "objects": {
             "type": "array",
             "maxItems": MAX_OBJECTS,
@@ -287,7 +318,7 @@ DIRECTIVE_SCHEMA = {
             }
         },
     },
-    "required": ["action", "topic_summary", "time_context", "layout", "objects"],
+    "required": ["action", "topic_summary", "time_context", "layout", "beat", "kicker", "headline", "hero_stat", "objects"],
     "additionalProperties": False
 }
 
@@ -555,6 +586,10 @@ def _greeting_directive(greeting):
         }],
         "time_context": "present",
         "scene_description": label + ".",
+        "beat": "scene",
+        "kicker": "",
+        "headline": "",
+        "hero_stat": None,
         "semantic_analysis": {
             "subject": "",
             "action": "Menyapa",
@@ -601,6 +636,32 @@ def _detect_concepts(text):
     # end for
     detected.sort(key=lambda item: item["index"])
     return detected
+# end def
+
+def _offline_beat(objects, stat, layout):
+    # The offline path cannot write like a model, but it can still pick
+    # a format so a number becomes a number and a note becomes type.
+    pack = {"beat": "scene", "kicker": "", "headline": "", "hero_stat": None}
+    if stat != None and len(objects) == 1:
+        pack["beat"] = "stat"
+        pack["kicker"] = "Angka"
+        pack["headline"] = objects[0]["label"]
+        pack["hero_stat"] = stat
+        return pack
+    # end if
+    if len(objects) == 1 and objects[0].get("icon") == "sticky-note":
+        pack["beat"] = "poster"
+        pack["kicker"] = "Inti"
+        pack["headline"] = objects[0]["label"]
+        return pack
+    # end if
+    if layout == "comparison" and len(objects) >= 2:
+        pack["beat"] = "duo"
+        pack["kicker"] = "Kontras"
+        pack["headline"] = objects[0]["label"] + " lawan " + objects[len(objects) - 1]["label"]
+        return pack
+    # end if
+    return pack
 # end def
 
 def _fallback_director(transcript, canvas_objects):
@@ -784,6 +845,7 @@ def _fallback_director(transcript, canvas_objects):
     if len(detected) > 0:
         action_word = detected[0]["word"].capitalize()
     # end if
+    beat_pack = _offline_beat(objects, stat, layout)
 
     return {
         "action": action,
@@ -797,7 +859,11 @@ def _fallback_director(transcript, canvas_objects):
             "action": action_word,
             "object": objects[0]["label"] if len(objects) > 0 else "",
             "location": location
-        }
+        },
+        "beat": beat_pack["beat"],
+        "kicker": beat_pack["kicker"],
+        "headline": beat_pack["headline"],
+        "hero_stat": beat_pack["hero_stat"]
     }
 # end def
 
@@ -820,6 +886,46 @@ def _clean_str(value, max_len):
         return None
     # end if
     return value[0:max_len]
+# end def
+
+def _read_beat(raw, objects):
+    beat = raw.get("beat")
+    if beat not in VALID_BEATS:
+        beat = "scene"
+    # end if
+    headline = _clean_str(raw.get("headline"), 72)
+    if headline == None:
+        headline = ""
+    # end if
+    kicker = _clean_str(raw.get("kicker"), 22)
+    if kicker == None:
+        kicker = ""
+    # end if
+    hero = _clean_str(raw.get("hero_stat"), 12)
+    if beat == "poster" and headline == "" and len(objects) > 0:
+        headline = objects[0]["label"]
+    # end if
+    if beat == "stat" and hero == None and len(objects) > 0:
+        hero = objects[0].get("highlight_stat")
+    # end if
+    if beat == "duo" and headline == "" and len(objects) >= 2:
+        headline = objects[0]["label"] + " lawan " + objects[len(objects) - 1]["label"]
+    # end if
+    if beat == "poster" and headline == "":
+        beat = "scene"
+    # end if
+    if beat == "duo" and len(objects) == 0:
+        if headline != "":
+            beat = "poster"
+        else:
+            beat = "scene"
+        # end if
+    # end if
+    if beat == "stat" and (hero == None or hero == ""):
+        beat = "scene"
+        hero = None
+    # end if
+    return {"beat": beat, "kicker": kicker, "headline": headline, "hero_stat": hero}
 # end def
 
 def _clean_semantic(raw):
@@ -975,7 +1081,11 @@ def _validate_directive(raw, transcript=""):
         })
     # end for
 
-    if action == "UPDATE" and len(objects) == 0:
+    beat_pack = _read_beat(raw, objects)
+    if action == "UPDATE" and len(objects) == 0 and beat_pack["beat"] not in ["poster", "stat"]:
+        action = "IGNORE"
+    # end if
+    if action == "UPDATE" and len(objects) == 0 and beat_pack["headline"] == "" and beat_pack["hero_stat"] == None:
         action = "IGNORE"
     # end if
 
@@ -984,6 +1094,7 @@ def _validate_directive(raw, transcript=""):
         "topic_summary": topic,
         "layout": layout,
         "objects": objects,
+        **beat_pack,
         **meta
     }
 # end def
@@ -1021,11 +1132,17 @@ def active_model():
 
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 
-def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial):
-    if config.G_DEEPSEEK_API_KEY == "":
-        return None
+def _slide_brief(slide):
+    if not isinstance(slide, dict):
+        return "beat=none, kicker=, headline="
     # end if
+    beat = str(slide.get("beat") or "scene")[0:12]
+    kicker = str(slide.get("kicker") or "")[0:24]
+    headline = str(slide.get("headline") or "")[0:80]
+    return "beat=" + beat + ", kicker=" + kicker + ", headline=" + headline
+# end def
 
+def _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide):
     safe_canvas = []
     for obj in canvas_objects[0:MAX_OBJECTS]:
         if isinstance(obj, dict):
@@ -1037,11 +1154,20 @@ def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial):
             })
         # end if
     # end for
+    text = ""
+    text = text + "STATUS: is_paused=" + ("true" if is_paused else "false") + ", language=" + lang + "\n"
+    text = text + "CURRENT_SLIDE: " + _slide_brief(slide) + "\n"
+    text = text + "CURRENT_CANVAS_OBJECTS: " + json.dumps(safe_canvas, ensure_ascii=False) + "\n"
+    text = text + ("TRANSCRIPT (PARSIAL): " if partial else "TRANSCRIPT: ") + transcript
+    return text
+# end def
 
-    user_text = ""
-    user_text = user_text + "STATUS: is_paused=" + ("true" if is_paused else "false") + ", language=" + lang + "\n"
-    user_text = user_text + "CURRENT_CANVAS_OBJECTS: " + json.dumps(safe_canvas, ensure_ascii=False) + "\n"
-    user_text = user_text + ("TRANSCRIPT (PARSIAL): " if partial else "TRANSCRIPT: ") + transcript
+def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide=None):
+    if config.G_DEEPSEEK_API_KEY == "":
+        return None
+    # end if
+
+    user_text = _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide)
 
     # JSON mode requires the word "json" to appear in the prompt — the
     # Visual Director system prompt already demands STRICT JSON output.
@@ -1052,7 +1178,7 @@ def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial):
             {"role": "user", "content": user_text}
         ],
         "response_format": {"type": "json_object"},
-        "temperature": 0.2,
+        "temperature": 0.55,
         "max_tokens": 1024,
         "stream": False
     }
@@ -1108,28 +1234,13 @@ def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial):
 # The Claude-powered Visual Director.
 # ---------------------------------------------------------------------------
 
-def _ask_director(transcript, lang, is_paused, canvas_objects, partial):
+def _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide=None):
     client = _get_client()
     if client == None:
         return None
     # end if
 
-    safe_canvas = []
-    for obj in canvas_objects[0:MAX_OBJECTS]:
-        if isinstance(obj, dict):
-            safe_canvas.append({
-                "id": str(obj.get("id") or ""),
-                "icon": str(obj.get("icon") or ""),
-                "label": str(obj.get("label") or ""),
-                "highlight_stat": obj.get("highlight_stat")
-            })
-        # end if
-    # end for
-
-    user_text = ""
-    user_text = user_text + "STATUS: is_paused=" + ("true" if is_paused else "false") + ", language=" + lang + "\n"
-    user_text = user_text + "CURRENT_CANVAS_OBJECTS: " + json.dumps(safe_canvas, ensure_ascii=False) + "\n"
-    user_text = user_text + ("TRANSCRIPT (PARSIAL): " if partial else "TRANSCRIPT: ") + transcript
+    user_text = _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide)
 
     system_text = SYSTEM_PROMPT_BASE + _icon_prompt_text()
 
@@ -1143,7 +1254,7 @@ def _ask_director(transcript, lang, is_paused, canvas_objects, partial):
         }],
         messages=[{"role": "user", "content": user_text}],
         output_config={
-            "effort": "low",
+            "effort": "medium",
             "format": {"type": "json_schema", "schema": DIRECTIVE_SCHEMA}
         },
         betas=["server-side-fallback-2026-07-01"],
@@ -1315,7 +1426,7 @@ class sketchtalk_proc:
         }
     # end def
 
-    def interpret(self, transcript, lang, is_paused, canvas_objects, partial, instant, room="", source=""):
+    def interpret(self, transcript, lang, is_paused, canvas_objects, partial, instant, room="", source="", slide=None):
         lower = (transcript or "").lower()
 
         # Deterministic voice-command layer (spec: STATE & VOICE COMMANDS).
@@ -1348,7 +1459,7 @@ class sketchtalk_proc:
         started = time.time()
         if provider == "deepseek":
             try:
-                directive = _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial)
+                directive = _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide)
                 if directive != None:
                     engine = "deepseek"
                 # end if
@@ -1357,7 +1468,7 @@ class sketchtalk_proc:
             # end try
         elif provider == "anthropic":
             try:
-                directive = _ask_director(transcript, lang, is_paused, canvas_objects, partial)
+                directive = _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide)
                 if directive != None:
                     engine = "claude"
                 # end if
@@ -1392,7 +1503,7 @@ class sketchtalk_proc:
         for obj in directive.get("objects", []):
             icons.append(str(obj.get("icon")))
         # end for
-        print("[SketchTalk] result: engine=" + engine + " action=" + str(directive.get("action")) + " layout=" + str(directive.get("layout")) + " time=" + str(directive.get("time_context")) + " objects=" + str(icons) + " (" + str(elapsed) + "s)", flush=True)
+        print("[SketchTalk] result: engine=" + engine + " action=" + str(directive.get("action")) + " beat=" + str(directive.get("beat")) + " layout=" + str(directive.get("layout")) + " time=" + str(directive.get("time_context")) + " objects=" + str(icons) + " (" + str(elapsed) + "s)", flush=True)
         # Per-object text diagnostics: the browser card wraps labels wider
         # than ~196px onto two fixed lines and clamps labels over 32 chars.
         for obj in directive.get("objects", []):

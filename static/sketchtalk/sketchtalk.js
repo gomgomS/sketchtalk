@@ -64,17 +64,24 @@
         paused: false,
         lastEngine: null,
         timeContext: 'none',
-        sceneDesc: ''
+        sceneDesc: '',
+        beat: 'scene',
+        headline: '',
+        kicker: '',
+        heroStat: '',
+        typeBorn: 0
     };
 
     var TIME_LABELS = { past: 'Masa Lalu', present: 'Sekarang', future: 'Masa Depan' };
+    var BEAT_LABELS = { poster: 'tulisan', stat: 'angka', duo: 'teks + gambar' };
 
     function renderTopicBar() {
-        if (state.topic !== '' || state.nodes.length > 0) {
+        if (state.topic !== '' || state.nodes.length > 0 || state.headline !== '' || state.heroStat !== '') {
             topicBar.style.display = 'flex';
             topicEl.textContent = state.topic;
-            layoutEl.textContent = state.layout.replace('_', ' ');
-            topicBar.title = state.sceneDesc || '';
+            var beatName = BEAT_LABELS[state.beat] || '';
+            layoutEl.textContent = beatName !== '' ? beatName : state.layout.replace('_', ' ');
+            topicBar.title = state.headline || state.sceneDesc || '';
             if (TIME_LABELS[state.timeContext]) {
                 timeEl.textContent = TIME_LABELS[state.timeContext];
                 timeEl.style.display = 'inline-block';
@@ -145,7 +152,7 @@
     }
 
     function updateEmptyState() {
-        if (state.nodes.length > 0 || state.dying.length > 0) {
+        if (state.nodes.length > 0 || state.dying.length > 0 || state.headline !== '' || state.heroStat !== '') {
             emptyHint.style.opacity = '0';
         } else {
             emptyHint.style.opacity = '1';
@@ -423,7 +430,11 @@
             layout: state.layout,
             objects: objs,
             time_context: state.timeContext,
-            scene_description: state.sceneDesc
+            scene_description: state.sceneDesc,
+            beat: state.beat,
+            headline: state.headline,
+            kicker: state.kicker,
+            hero_stat: state.heroStat
         };
     }
 
@@ -441,11 +452,35 @@
 
     function setScene(objects, layout, topic, extras) {
         extras = extras || {};
+        var nextBeat = extras.beat || 'scene';
+        var nextHead = extras.headline || '';
+        var nextKick = extras.kicker || '';
+        var nextHero = extras.hero || '';
+        if (nextBeat !== state.beat || nextHead !== state.headline || nextHero !== state.heroStat) {
+            state.typeBorn = performance.now();
+        }
+        state.beat = nextBeat;
+        state.headline = nextHead;
+        state.kicker = nextKick;
+        state.heroStat = nextHero;
         state.layout = layout;
         state.topic = topic || '';
         state.timeContext = extras.time || 'none';
         state.sceneDesc = extras.scene || '';
         var pos = computeLayout(layout, objects);
+        if (state.beat === 'duo') {
+            for (var s = 0; s < pos.length; s++) {
+                pos[s].x = 320;
+                pos[s].y = (s - (pos.length - 1) / 2) * 220;
+                pos[s].scale = pos.length > 1 ? 0.84 : 1.04;
+            }
+        } else if (state.beat === 'stat') {
+            for (var s2 = 0; s2 < pos.length; s2++) {
+                pos[s2].x = (s2 - (pos.length - 1) / 2) * 150;
+                pos[s2].y = -230;
+                pos[s2].scale = 0.42;
+            }
+        }
         var byId = {};
         for (var i = 0; i < state.nodes.length; i++) {
             byId[state.nodes[i].id] = state.nodes[i];
@@ -540,10 +575,34 @@
             state.edges = [];
         }
         var objects = Array.isArray(dir.objects) ? dir.objects.slice(0, 4) : [];
-        if (objects.length === 0) {
+        var beat = ['scene', 'poster', 'stat', 'duo'].indexOf(dir.beat) >= 0 ? dir.beat : 'scene';
+        var headline = (dir.headline || '').trim();
+        var kicker = (dir.kicker || '').trim();
+        var hero = (dir.hero_stat || '').trim();
+        if (beat === 'poster' && headline === '' && objects.length > 0) {
+            headline = objects[0].label || '';
+        }
+        if (beat === 'stat' && hero === '' && objects.length > 0) {
+            hero = objects[0].highlight_stat || '';
+        }
+        if (beat === 'poster' && headline === '') {
+            beat = 'scene';
+        }
+        if (beat === 'stat' && hero === '') {
+            beat = 'scene';
+        }
+        if (beat === 'duo' && (objects.length === 0 || headline === '')) {
+            beat = objects.length === 0 && headline !== '' ? 'poster' : 'scene';
+        }
+        var typeOnly = (beat === 'poster' || beat === 'stat') && objects.length === 0;
+        if (objects.length === 0 && !typeOnly) {
             state.topic = '';
             state.timeContext = 'none';
             state.sceneDesc = '';
+            state.beat = 'scene';
+            state.headline = '';
+            state.kicker = '';
+            state.heroStat = '';
             renderTopicBar();
             updateEmptyState();
             autofit();
@@ -553,11 +612,18 @@
         if (objects.length === 1 && layout === 'flow') {
             layout = 'single';
         }
+        if (beat === 'poster' || beat === 'stat') {
+            layout = 'single';
+        }
         setScene(objects, layout, dir.topic_summary || '', {
             time: dir.time_context,
-            scene: dir.scene_description
+            scene: dir.scene_description,
+            beat: beat,
+            headline: headline,
+            kicker: kicker,
+            hero: hero
         });
-        console.log('[sketchtalk] scene applied:', objects.length, 'objects |', layout,
+        console.log('[sketchtalk] scene applied:', objects.length, 'objects |', beat, layout,
             '| cam zoom', Math.round(cam.tzoom * 100) / 100,
             '| pos', Math.round(cam.tx), Math.round(cam.ty));
     }
@@ -570,7 +636,11 @@
         var snap = undoStack.pop();
         setScene(snap.objects, snap.layout, snap.topic, {
             time: snap.time_context,
-            scene: snap.scene_description
+            scene: snap.scene_description,
+            beat: snap.beat,
+            headline: snap.headline,
+            kicker: snap.kicker,
+            hero: snap.hero_stat
         });
         toast('Aksi terakhir diurungkan');
     }
@@ -586,6 +656,10 @@
         state.topic = '';
         state.timeContext = 'none';
         state.sceneDesc = '';
+        state.beat = 'scene';
+        state.headline = '';
+        state.kicker = '';
+        state.heroStat = '';
         renderTopicBar();
         updateEmptyState();
         autofit();
@@ -597,25 +671,50 @@
     // ------------------------------------------------------------------
     // 6. Camera
     // ------------------------------------------------------------------
+    function typeBounds() {
+        if (state.beat === 'poster') {
+            return { minX: -480, maxX: 480, minY: -190, maxY: 190 };
+        }
+        if (state.beat === 'stat') {
+            return { minX: -360, maxX: 360, minY: -290, maxY: 210 };
+        }
+        if (state.beat === 'duo') {
+            return { minX: -640, maxX: -40, minY: -180, maxY: 180 };
+        }
+        return null;
+    }
+
     function autofit() {
         var nodes = state.nodes;
-        if (nodes.length === 0) {
-            cam.tx = 0;
-            cam.ty = 0;
-            cam.tzoom = 1;
-            return;
-        }
         var minX = Infinity;
         var minY = Infinity;
         var maxX = -Infinity;
         var maxY = -Infinity;
-        for (var i = 0; i < nodes.length; i++) {
-            var nd = nodes[i];
-            var ext = nodeExtents(nd);
-            minX = Math.min(minX, nd.tx - ext.rx);
-            maxX = Math.max(maxX, nd.tx + ext.rx);
-            minY = Math.min(minY, nd.ty - ext.ry);
-            maxY = Math.max(maxY, nd.ty + ext.ry);
+        var counted = 0;
+        if (state.beat !== 'poster' && state.beat !== 'stat') {
+            for (var i = 0; i < nodes.length; i++) {
+                var nd = nodes[i];
+                var ext = nodeExtents(nd);
+                minX = Math.min(minX, nd.tx - ext.rx);
+                maxX = Math.max(maxX, nd.tx + ext.rx);
+                minY = Math.min(minY, nd.ty - ext.ry);
+                maxY = Math.max(maxY, nd.ty + ext.ry);
+                counted = counted + 1;
+            }
+        }
+        var tb = typeBounds();
+        if (tb) {
+            minX = Math.min(minX, tb.minX);
+            maxX = Math.max(maxX, tb.maxX);
+            minY = Math.min(minY, tb.minY);
+            maxY = Math.max(maxY, tb.maxY);
+            counted = counted + 1;
+        }
+        if (counted === 0) {
+            cam.tx = 0;
+            cam.ty = 0;
+            cam.tzoom = 1;
+            return;
         }
         var pad = 78;
         var bw = maxX - minX + pad * 2;
@@ -1096,7 +1195,7 @@
         }
         ctx.restore();
 
-        if (textAlpha > 0 && node.stat) {
+        if (state.beat !== 'stat' && textAlpha > 0 && node.stat) {
             ctx.save();
             ctx.globalAlpha = node.alpha * fade * textAlpha;
             ctx.font = '700 ' + box.statFont + 'px "IBM Plex Mono", monospace';
@@ -1380,6 +1479,160 @@
         ctx.restore();
     }
 
+    function wrapLines(text, maxW, maxLines) {
+        var words = String(text || '').split(/\s+/);
+        var lines = [];
+        var line = '';
+        var i;
+        for (i = 0; i < words.length; i++) {
+            if (words[i] === '') {
+                continue;
+            }
+            var candidate = line === '' ? words[i] : line + ' ' + words[i];
+            if (ctx.measureText(candidate).width > maxW && line !== '') {
+                lines.push(line);
+                line = words[i];
+                if (lines.length >= maxLines - 1) {
+                    line = words.slice(i).join(' ');
+                    break;
+                }
+            } else {
+                line = candidate;
+            }
+        }
+        if (line !== '') {
+            lines.push(line);
+        }
+        return lines.slice(0, maxLines);
+    }
+
+    function fillTracked(text, x, y, gap) {
+        var chars = String(text || '').split('');
+        var total = 0;
+        var widths = [];
+        var i;
+        for (i = 0; i < chars.length; i++) {
+            var w = ctx.measureText(chars[i]).width;
+            widths.push(w);
+            total += w;
+            if (i < chars.length - 1) {
+                total += gap;
+            }
+        }
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        var cursor = x - total / 2;
+        for (i = 0; i < chars.length; i++) {
+            ctx.fillText(chars[i], cursor, y);
+            cursor += widths[i] + gap;
+        }
+    }
+
+    function headlineSize(text) {
+        var n = String(text || '').length;
+        if (n <= 18) {
+            return 72;
+        }
+        if (n <= 34) {
+            return 56;
+        }
+        if (n <= 52) {
+            return 44;
+        }
+        return 36;
+    }
+
+    function drawCopyBlock(x, y, maxW, align, size) {
+        var kicker = (state.kicker || '').toUpperCase();
+        ctx.fillStyle = INK_MUTE;
+        ctx.font = '600 13px "IBM Plex Mono", monospace';
+        if (align === 'center') {
+            fillTracked(kicker, x, y - 46, 3.4);
+            ctx.strokeStyle = INK;
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(x - 54, y - 16);
+            ctx.lineTo(x + 54, y - 16);
+            ctx.stroke();
+        } else {
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(kicker, x, y - 46);
+            ctx.strokeStyle = INK;
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(x, y - 16);
+            ctx.lineTo(x + 64, y - 16);
+            ctx.stroke();
+        }
+        ctx.fillStyle = INK;
+        ctx.font = '700 ' + size + 'px "Archivo", sans-serif';
+        var lines = wrapLines(state.headline || '', maxW, 3);
+        var lineH = Math.round(size * 1.14);
+        ctx.textBaseline = 'top';
+        for (var i = 0; i < lines.length; i++) {
+            ctx.textAlign = align === 'center' ? 'center' : 'left';
+            ctx.fillText(lines[i], x, y + i * lineH);
+        }
+    }
+
+    function drawStatBlock(rise) {
+        var num = state.heroStat || '';
+        var size = 140;
+        ctx.font = '700 ' + size + 'px "IBM Plex Mono", monospace';
+        while (size > 68 && ctx.measureText(num).width > 700) {
+            size -= 6;
+            ctx.font = '700 ' + size + 'px "IBM Plex Mono", monospace';
+        }
+        ctx.fillStyle = INK_MUTE;
+        ctx.font = '600 13px "IBM Plex Mono", monospace';
+        fillTracked((state.kicker || 'Angka').toUpperCase(), 0, -size * 0.62 + rise, 3.2);
+        ctx.fillStyle = INK;
+        ctx.font = '700 ' + size + 'px "IBM Plex Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(num, 0, 8 + rise);
+        ctx.font = '600 26px "Archivo", sans-serif';
+        ctx.textBaseline = 'top';
+        var lines = wrapLines(state.headline || '', 640, 2);
+        for (var i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[i], 0, size * 0.46 + i * 34 + rise);
+        }
+    }
+
+    function drawDuoRule() {
+        ctx.save();
+        ctx.strokeStyle = '#d4d4d8';
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(20, -160);
+        ctx.lineTo(20, 180);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawTypeLayer(now) {
+        if (state.beat !== 'poster' && state.beat !== 'stat' && state.beat !== 'duo') {
+            return;
+        }
+        if (state.headline === '' && state.heroStat === '') {
+            return;
+        }
+        var p = Math.max(0, Math.min(1, (now - (state.typeBorn || now)) / 460));
+        var rise = (1 - easeOutCubic(p)) * 18;
+        ctx.save();
+        ctx.globalAlpha = 0.2 + 0.8 * easeOutCubic(p);
+        if (state.beat === 'stat') {
+            drawStatBlock(rise);
+        } else if (state.beat === 'duo') {
+            drawCopyBlock(-580, -10 + rise, 460, 'left', 42);
+        } else {
+            drawCopyBlock(0, -8 + rise, 860, 'center', headlineSize(state.headline));
+        }
+        ctx.restore();
+    }
+
     var lastFrame = performance.now();
     var frameErrors = 0;
 
@@ -1406,7 +1659,7 @@
         cam.y += (cam.ty - cam.y) * Math.min(1, dt * 9);
         cam.zoom += (cam.tzoom - cam.zoom) * Math.min(1, dt * 9);
 
-        var wantDivider = state.layout === 'comparison' && state.nodes.length >= 2 ? 1 : 0;
+        var wantDivider = state.beat === 'scene' && state.layout === 'comparison' && state.nodes.length >= 2 ? 1 : 0;
         state.dividerAlpha += (wantDivider - state.dividerAlpha) * Math.min(1, dt * 6);
 
         ctx.clearRect(0, 0, viewW, viewH);
@@ -1422,11 +1675,20 @@
             nd.scale += (nd.tScale - nd.scale) * Math.min(1, dt * 6);
             nd.alpha += (nd.tAlpha - nd.alpha) * Math.min(1, dt * 6);
         }
-        drawSkyDoodles(now / 1000);
-        drawStoryLinks(now);
-        for (var n = 0; n < state.nodes.length; n++) {
-            drawNode(state.nodes[n], now);
+        var showPictures = state.beat !== 'poster';
+        if (showPictures && state.beat === 'scene') {
+            drawSkyDoodles(now / 1000);
+            drawStoryLinks(now);
         }
+        if (state.beat === 'duo') {
+            drawDuoRule();
+        }
+        if (showPictures) {
+            for (var n = 0; n < state.nodes.length; n++) {
+                drawNode(state.nodes[n], now);
+            }
+        }
+        drawTypeLayer(now);
         for (var d = state.dying.length - 1; d >= 0; d--) {
             var dead = state.dying[d];
             dead.alpha -= dt * 4.2;
@@ -1657,7 +1919,12 @@
                 room: CFG.room || '',
                 source: SOURCE_ID,
                 seq: payloadSeq,
-                canvas_objects: canvasObjects()
+                canvas_objects: canvasObjects(),
+                slide: {
+                    beat: state.beat,
+                    kicker: state.kicker,
+                    headline: state.headline
+                }
             };
             var body = new URLSearchParams();
             body.set('csrf_token', CFG.csrfToken || '');

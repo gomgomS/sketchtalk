@@ -156,12 +156,21 @@ def json_interpret():
             "highlight_stat": sanitize.clean_html(str(obj.get("highlight_stat") or ""))[0:12] or None
         })
     # end for
+    slide = None
+    raw_slide = payload.get("slide")
+    if isinstance(raw_slide, dict):
+        slide = {
+            "beat": sanitize.clean_html(str(raw_slide.get("beat") or ""))[0:12],
+            "kicker": sanitize.clean_html(str(raw_slide.get("kicker") or ""))[0:24],
+            "headline": sanitize.clean_html(str(raw_slide.get("headline") or ""))[0:80]
+        }
+    # end if
 
     if transcript == "":
         result = {"status": "SUCCESS", "engine": "command", "directive": {"action": "IGNORE", "topic_summary": "", "layout": "single", "objects": []}}
     else:
         proc = sketchtalk_proc()
-        result = proc.interpret(transcript, lang, is_paused, clean_canvas, partial, instant, room, source)
+        result = proc.interpret(transcript, lang, is_paused, clean_canvas, partial, instant, room, source, slide)
     # end if
 
     # Echo the client sequence number so stale real-time responses can be

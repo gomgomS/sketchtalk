@@ -357,6 +357,55 @@ def test_greeting_with_a_real_topic_keeps_the_topic(client):
 # end def
 
 
+def test_number_sentence_becomes_a_stat_slide(client):
+    directive = _interpret(client, "Omzet kita naik 60 persen").get_json()["directive"]
+    assert directive["beat"] == "stat"
+    assert directive["hero_stat"] == "60%"
+    assert directive["headline"] != ""
+    assert directive["layout"] == "single"
+# end def
+
+
+def test_poster_beat_survives_without_objects():
+    from sketchtalk.sketchtalk_proc import _validate_directive
+    raw = {
+        "action": "CLEAR_AND_DRAW",
+        "topic_summary": "Biaya",
+        "time_context": "present",
+        "layout": "single",
+        "beat": "poster",
+        "kicker": "Masalah",
+        "headline": "Biaya operasional membengkak",
+        "hero_stat": None,
+        "objects": []
+    }
+    out = _validate_directive(raw)
+    assert out["action"] == "CLEAR_AND_DRAW"
+    assert out["beat"] == "poster"
+    assert out["headline"] == "Biaya operasional membengkak"
+    assert out["objects"] == []
+    assert out["kicker"] == "Masalah"
+# end def
+
+
+def test_unknown_beat_falls_back_to_scene():
+    from sketchtalk.sketchtalk_proc import _validate_directive
+    raw = {
+        "action": "CLEAR_AND_DRAW",
+        "topic_summary": "Jalan",
+        "layout": "flow",
+        "beat": "carousel",
+        "headline": "",
+        "objects": [
+            {"id": "obj_1", "icon": "train", "label": "Kereta", "highlight_stat": None, "role": "vehicle"}
+        ]
+    }
+    out = _validate_directive(raw)
+    assert out["beat"] == "scene"
+    assert out["objects"][0]["icon"] == "train"
+# end def
+
+
 def test_long_greeting_becomes_illustration(client):
     res = _interpret(client, "Selamat pagi teman-teman, hari ini kita akan mulai presentasi ya")
     assert res.status_code == 200
