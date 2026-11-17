@@ -1241,30 +1241,46 @@ class sketchtalk_proc:
         return room_code
     # end def
 
-    def push_to_room(self, room_code, source, engine, directive, partial):
+    def push_to_room(self, room_code, source, engine, directive, partial, instant):
         room_code = (room_code or "").strip().upper()[0:12]
         if room_code == "":
             return None
         # end if
         self.ensure_room(room_code, True)
-        updated = self.mgdDB.db_sketchtalk_room.find_one_and_update(
-            {"room_code": room_code, "is_deleted": False},
+        is_final = instant != True
+        tier_seq_field = "final_seq" if is_final else "preview_seq"
+        tier_doc_field = "final_directive" if is_final else "preview_directive"
+        tier_label = "final" if is_final else "preview"
+        # 1) content first, 2) ordering counter, 3) stamp the tier's seq —
+        # readers can at worst see new content one beat early, never lose it.
+        self.mgdDB.db_sketchtalk_room.update_one(
+            {"room_code": room_code},
             {"$set": {
+                tier_doc_field: directive,
                 "last_source": source[0:40],
                 "last_engine": engine,
                 "partial": partial == True,
                 "directive": directive,
                 "paused": directive.get("action") == "PAUSE",
                 "updated_at": time.strftime("%Y-%m-%d %H:%M:%S")
-            }, "$inc": {"last_seq": 1}},
+            }}
+        )
+        updated = self.mgdDB.db_sketchtalk_room.find_one_and_update(
+            {"room_code": room_code},
+            {"$inc": {"last_seq": 1}},
             {"_id": 0},
             return_document=ReturnDocument.AFTER
         )
         if updated == None:
             return None
         # end if
-        print("[SketchTalk] room " + room_code + " <- push seq " + str(updated.get("last_seq", 0)) + " source=" + source[0:20] + " action=" + str(directive.get("action")), flush=True)
-        return {"seq": updated.get("last_seq", 0)}
+        seq = updated.get("last_seq", 0)
+        self.mgdDB.db_sketchtalk_room.update_one(
+            {"room_code": room_code},
+            {"$set": {tier_seq_field: seq}}
+        )
+        print("[SketchTalk] room " + room_code + " <- push seq " + str(seq) + " " + tier_label + " source=" + source[0:20] + " action=" + str(directive.get("action")), flush=True)
+        return {"seq": seq}
     # end def
 
     def room_state(self, room_code, since):
@@ -1275,16 +1291,27 @@ class sketchtalk_proc:
         if room == None:
             return {"seq": 0, "source": "", "engine": "", "directive": None, "partial": False}
         # end if
-        seq = room.get("last_seq", 0)
-        if seq <= since:
-            return {"seq": seq, "source": "", "engine": "", "directive": None, "partial": False}
+        # Deliver the newest tier that is newer than the poller's seq.
+        # A final (AI) result always beats a newer-numbered stale preview,
+        # so screens never flash sticky-notes over finished AI scenes.
+        final_seq = room.get("final_seq", 0)
+        preview_seq = room.get("preview_seq", 0)
+        chosen = None
+        if final_seq > since:
+            chosen = {"seq": final_seq, "directive": room.get("final_directive"), "partial": False}
+        # end if
+        if preview_seq > since and (chosen == None or preview_seq > chosen["seq"]):
+            chosen = {"seq": preview_seq, "directive": room.get("preview_directive"), "partial": True}
+        # end if
+        if chosen == None or chosen["directive"] == None:
+            return {"seq": since, "source": "", "engine": "", "directive": None, "partial": False}
         # end if
         return {
-            "seq": seq,
+            "seq": chosen["seq"],
             "source": room.get("last_source", ""),
             "engine": room.get("last_engine", ""),
-            "directive": room.get("directive") or None,
-            "partial": room.get("partial", False)
+            "directive": chosen["directive"],
+            "partial": chosen["partial"]
         }
     # end def
 
@@ -1338,7 +1365,12 @@ class sketchtalk_proc:
                 print("[SketchTalk] Claude engine FAILED, using fallback -> " + str(e), flush=True)
             # end try
         else:
-            print("[SketchTalk] no AI provider configured, using offline fallback", flush=True)
+            if instant:
+                # Instant previews skip the AI on purpose (speed feature).
+                print("[SketchTalk] instant preview: local engine by design (bukan error)", flush=True)
+            else:
+                print("[SketchTalk] no AI provider configured, using offline fallback", flush=True)
+            # end if
         # end if
         # Policy enforcement: IGNORE is only valid for ultra-short
         # interjections. If the engine tries to ignore anything longer,
@@ -1383,7 +1415,7 @@ class sketchtalk_proc:
             envelope["instant"] = True
         # end if
         if room != "":
-            pushed = self.push_to_room(room, source, engine, directive, partial)
+            pushed = self.push_to_room(room, source, engine, directive, partial, instant)
             if pushed != None:
                 envelope["room_seq"] = pushed["seq"]
             # end if

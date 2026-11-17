@@ -109,6 +109,10 @@ db = {
         "partial": False,
         "directive": {},
         "paused": False,
+        "final_seq": 0,
+        "final_directive": {},
+        "preview_seq": 0,
+        "preview_directive": {},
         "updated_at": ""
     }
 }

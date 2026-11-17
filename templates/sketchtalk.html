@@ -40,9 +40,11 @@
         <span id="sk-engine" class="font-mono text-[11px] uppercase tracking-widest text-mute"
               title="Engine Visual Director">engine: &hellip;</span>
         <span class="mx-2 text-line">|</span>
-        <a href="{{ url_for('sketchtalk_blueprint.mic', room=data.room) }}"
+        <a id="sk-mic-link" href="{{ url_for('sketchtalk_blueprint.mic', room=data.room) }}"
            class="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] underline"
            title="Buka halaman mikrofon untuk room ini">mic: {{ data.room }}</a>
+        <button id="sk-copy-mic" class="sk-tool sk-tool-text" type="button"
+                title="Salin tautan mic untuk dibuka di perangkat lain (tanpa mengetik kode)">Salin tautan mic</button>
     </div>
 
     <!-- Top-center: live topic -->

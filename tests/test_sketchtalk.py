@@ -234,7 +234,7 @@ def test_room_push_and_state(client):
                  "layout": "flow", "objects": [
                      {"id": "obj_1", "icon": "airplane", "label": "Terbang", "highlight_stat": None,
                       "connect_to": None, "edge_label": None, "role": "vehicle"}]}
-    pushed = proc.push_to_room(code, "mic-test", "deepseek", directive, False)
+    pushed = proc.push_to_room(code, "mic-test", "deepseek", directive, False, False)
     assert pushed != None and pushed["seq"] >= 1
 
     state = proc.room_state(code, 0)
@@ -245,6 +245,40 @@ def test_room_push_and_state(client):
     # Polling with 'since' at the current seq reports nothing new
     state = proc.room_state(code, pushed["seq"])
     assert state["directive"] == None
+# end def
+
+
+def test_room_final_beats_stale_preview():
+    from sketchtalk.sketchtalk_proc import sketchtalk_proc
+    proc = sketchtalk_proc()
+    code = proc.ensure_room("TIER1")
+
+    preview = {"action": "CLEAR_AND_DRAW", "topic_summary": "Sementara", "layout": "single",
+               "objects": [{"id": "obj_1", "icon": "sticky-note", "label": "Sementara",
+                            "highlight_stat": None, "connect_to": None, "edge_label": None, "role": "object"}]}
+    final = {"action": "CLEAR_AND_DRAW", "topic_summary": "Rajin Menabung", "layout": "single",
+             "objects": [{"id": "obj_1", "icon": "wallet", "label": "Rajin Menabung",
+                          "highlight_stat": None, "connect_to": None, "edge_label": None, "role": "symbol"}]}
+
+    p1 = proc.push_to_room(code, "mic-a", "fallback", preview, True, True)
+    f1 = proc.push_to_room(code, "mic-a", "deepseek", final, False, False)
+    assert f1["seq"] > p1["seq"]
+
+    # Poller behind both: the AI final wins; the sticky-note preview is skipped.
+    state = proc.room_state(code, 0)
+    assert state["directive"]["objects"][0]["icon"] == "wallet"
+    assert state["partial"] == False
+
+    # Up to date: nothing new.
+    state = proc.room_state(code, f1["seq"])
+    assert state["directive"] == None
+
+    # A NEW preview while the speaker continues still shows quickly.
+    p2 = proc.push_to_room(code, "mic-a", "fallback", preview, True, True)
+    assert p2["seq"] > f1["seq"]
+    state = proc.room_state(code, f1["seq"])
+    assert state["directive"] != None
+    assert state["partial"] == True
 # end def
 
 

@@ -1789,6 +1789,35 @@
         clearCanvas(true);
     });
 
+    // Copy the exact mic URL so the second device never types a room code.
+    document.getElementById('sk-copy-mic').addEventListener('click', function () {
+        var micLink = document.getElementById('sk-mic-link');
+        var micUrl = location.origin + (micLink ? micLink.getAttribute('href') : '/mic');
+        function done() {
+            toast('Tautan mic disalin — buka di perangkat lain: ' + micUrl);
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(micUrl).then(done, function () { fallbackCopy(micUrl); done(); });
+        } else {
+            fallbackCopy(micUrl);
+            done();
+        }
+    });
+
+    function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+        } catch (err) {
+        }
+        document.body.removeChild(ta);
+    }
+
     document.getElementById('sk-export-btn').addEventListener('click', function () {
         if (state.nodes.length === 0) {
             toast('Kanvas masih kosong');
