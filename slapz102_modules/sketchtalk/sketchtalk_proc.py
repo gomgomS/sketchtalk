@@ -1393,24 +1393,49 @@ def _extends_talk(base, incoming):
 # end def
 
 def _merge_talk(buffer_text, incoming):
+    # Keep the newest words. Clipping the head here used to freeze Slow
+    # mode once the opening filled 1800 characters: later sentences were
+    # sliced off and the room stayed on "0 words held".
     current = _norm_talk(buffer_text)
     fresh = _norm_talk(incoming)
     if fresh == "":
         return current
     # end if
     if current == "":
-        return fresh[0:1800]
+        return fresh
     # end if
-    if _extends_talk(current, fresh):
-        if len(fresh) >= len(current):
-            return fresh[0:1800]
-        # end if
-        return current[0:1800]
+    low_current = current.lower()
+    low_fresh = fresh.lower()
+    if low_fresh.startswith(low_current):
+        return fresh
     # end if
-    if current.lower().endswith(fresh.lower()):
-        return current[0:1800]
+    # A shorter copy of the same live sentence, not a later phrase that
+    # merely begins like the start of the talk.
+    if low_current.startswith(low_fresh) and len(fresh) >= max(12, int(len(current) * 0.6)):
+        return current
     # end if
-    return (current + " " + fresh)[0:1800]
+    if low_current == low_fresh or low_current.endswith(" " + low_fresh):
+        return current
+    # end if
+    return (current + " " + fresh).strip()
+# end def
+
+def _clip_talk(buffer_text, shown_text):
+    current = _norm_talk(buffer_text)
+    shown = _norm_talk(shown_text)
+    if len(current) <= 1800:
+        return current, shown
+    # end if
+    unshown = _unshown_talk(current, shown)
+    clipped = current[-1600:].lstrip()
+    if unshown == "":
+        return clipped, clipped
+    # end if
+    spot = clipped.lower().rfind(unshown.lower())
+    if spot >= 0:
+        return clipped, clipped[:spot].rstrip()
+    # end if
+    return clipped, ""
 # end def
 
 def _unshown_talk(buffer_text, shown_text):
@@ -1782,8 +1807,14 @@ class sketchtalk_proc:
             # end if
             current = _norm_talk(state["buffer"])
             if current.lower().startswith(state["shown"].lower()) == False:
-                state["shown"] = current
+                spot = current.lower().rfind(committed.lower()) if committed != "" else -1
+                if spot >= 0:
+                    state["shown"] = current[:spot + len(committed)].rstrip()
+                else:
+                    state["shown"] = shown
+                # end if
             # end if
+            state["buffer"], state["shown"] = _clip_talk(state["buffer"], state["shown"])
             rest = _unshown_talk(state["buffer"], state["shown"])
             if state["prepared_text"] != "" and _covers_talk(rest, state["prepared_text"]) == False:
                 state["prepared"] = None
@@ -1952,12 +1983,7 @@ class sketchtalk_proc:
         with lock:
             state["mode"] = "slow"
             state["buffer"] = _merge_talk(state["buffer"], incoming)
-            if len(state["buffer"]) > 1800:
-                state["buffer"] = state["buffer"][-1400:].lstrip()
-                state["shown"] = ""
-                state["prepared"] = None
-                state["prepared_text"] = ""
-            # end if
+            state["buffer"], state["shown"] = _clip_talk(state["buffer"], state["shown"])
             unshown = _unshown_talk(state["buffer"], state["shown"])
             if state["prepared_text"] != "" and _covers_talk(unshown, state["prepared_text"]) == False:
                 state["prepared"] = None

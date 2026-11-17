@@ -739,6 +739,18 @@ def test_slow_mode_prepares_the_next_segment():
 # end def
 
 
+def test_slow_mode_keeps_the_newest_words_after_a_long_opening():
+    opening = ("Masalah utama bisnis kita sekarang adalah biaya operasional yang membengkak ") * 30
+    opening = " ".join(opening.split())
+    fresh = "Selanjutnya kita pindah ke target global tahun depan"
+    merged = _proc._merge_talk(opening, fresh)
+    assert merged.lower().endswith(fresh.lower())
+    clipped, shown = _proc._clip_talk(merged, opening)
+    pending = _proc._unshown_talk(clipped, shown)
+    assert "target global" in pending
+# end def
+
+
 def test_slow_mode_http_holds_a_fragment(client):
     token = _get_csrf_token(client)
     payload = {
