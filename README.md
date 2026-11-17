@@ -289,6 +289,28 @@ black-and-white line art (hand-authored bezier icons, stroke-draw
 animation, auto-layout: `single` / `flow` / `hub_spoke` / `comparison`,
 max 4 objects, big `highlight_stat` numbers, undo / clear / PNG export).
 
+**Multi-device rooms:** the landing page at `/` creates a presentation
+room (shareable code); `/mic/<room>` is a voice-only page for another
+device (phone / second laptop). Directives flow through a MongoDB room
+document and the stage polls it (~450ms). Room codes exclude look-alike
+characters, and joining a mic page with an unknown code redirects home
+instead of silently creating a parallel room.
+
+**Mic on another device needs HTTPS:** browsers only allow microphone
+capture on `localhost` or secure origins — a phone opening
+`http://<LAN-IP>:5004` gets its mic silently blocked (typing still
+works). For real multi-device use:
+
+```bash
+bash make_cert.sh      # self-signed cert for your LAN IPs (gitignored)
+bash start_https.sh    # serves https://<LAN-IP>:5004
+```
+
+Open the `https://` URL on the other device once, accept the
+self-signed-certificate warning, and the mic is allowed. Both the stage
+and the mic page detect insecure origins and explain the block on
+screen.
+
 The visual style is **story pictograms**: personal narratives map to
 concrete drawings (`airplane` → `flag-germany`, `train` → `map-pin
 "Bandung"`, `school-kid`, `worker`, `village`, `hospital`, `football`,

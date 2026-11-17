@@ -203,6 +203,27 @@ def test_home_and_rooms(client):
 # end def
 
 
+def test_mic_unknown_room_does_not_create(client):
+    # A typo in the room code must never silently create a parallel room.
+    res = client.get("/mic/ZZZZZZ")
+    assert res.status_code == 302
+    location = res.headers.get("Location", "")
+    assert location.startswith("/?error=")
+    # end def checks redirect home
+
+
+def test_room_codes_have_no_lookalike_chars(client):
+    from sketchtalk.sketchtalk_proc import sketchtalk_proc
+    proc = sketchtalk_proc()
+    for _ in range(10):
+        code = proc.new_room_code()
+        for ch in "B8S5IO01L6G":
+            assert ch not in code
+        # end for
+    # end for
+# end def
+
+
 def test_room_push_and_state(client):
     from sketchtalk.sketchtalk_proc import sketchtalk_proc
     proc = sketchtalk_proc()

@@ -236,19 +236,40 @@
             });
         }
 
+        function showHttpError(where, res) {
+            res.json().then(function (body) {
+                interimEl.textContent = '⚠ ' + where + ' gagal (HTTP ' + res.status + '): ' + (body && body.desc ? body.desc : '') + ' — reload halaman ini';
+            }).catch(function () {
+                interimEl.textContent = '⚠ ' + where + ' gagal (HTTP ' + res.status + ') — reload halaman ini';
+            });
+        }
+
         if (partial) {
             doPost(seq, true)
-                .then(function (res) { return res.json(); })
+                .then(function (res) {
+                    if (!res.ok) {
+                        showHttpError('pratinjau', res);
+                        return null;
+                    }
+                    return res.json();
+                })
                 .then(function (result) {
+                    if (result == null) {
+                        return;
+                    }
                     if (typeof result.room_seq === 'number') {
                         lastRoomSeq = Math.max(lastRoomSeq, result.room_seq);
                     }
                 })
-                .catch(function () { });
+                .catch(function (err) {
+                    console.warn('[sketchtalk-mic] preview failed:', err);
+                    interimEl.textContent = '⚠ tidak bisa menghubungi server — cek jaringan perangkat ini';
+                });
         }
         doPost(aiSeq, false)
             .then(function (res) {
                 if (!res.ok) {
+                    showHttpError('kirim', res);
                     throw new Error('http ' + res.status);
                 }
                 return res.json();
@@ -260,6 +281,9 @@
                 if (typeof result.room_seq === 'number') {
                     lastRoomSeq = Math.max(lastRoomSeq, result.room_seq);
                 }
+                if (result.directive && result.directive.topic_summary) {
+                    stageEl.textContent = 'layar: ' + result.directive.topic_summary;
+                }
                 if (partial) {
                     lastAppliedPreviewText = text;
                 }
@@ -269,10 +293,34 @@
             })
             .catch(function (err) {
                 console.warn('[sketchtalk-mic] request failed:', err);
-                if (!partial) {
-                    toast('Gagal menghubungi server');
-                }
             });
+    }
+
+    // Typing fallback: works on any device, no microphone permission
+    // needed (useful when the browser blocks the mic on insecure origins).
+    var formEl = document.getElementById('sk-form');
+    var inputEl = document.getElementById('sk-input');
+    if (formEl !== null) {
+        formEl.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var val = inputEl.value.trim();
+            if (val === '') {
+                return;
+            }
+            interimEl.textContent = '✓ "' + val + '"';
+            inputEl.value = '';
+            onSpeech(val, true);
+        });
+    }
+
+    // Insecure origin: explain WHY the mic is blocked instead of failing
+    // silently (localhost is fine; LAN IP over http is not).
+    if (window.isSecureContext === false) {
+        var secEl = document.getElementById('sk-secure');
+        if (secEl !== null) {
+            secEl.classList.remove('hidden');
+            secEl.textContent = 'Browser memblokir mikrofon di http:// (bukan localhost). Buka halaman ini via https:// — atau gunakan kotak ketik di bawah.';
+        }
     }
 
     document.querySelectorAll('.sk-sample').forEach(function (btn) {

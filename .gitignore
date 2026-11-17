@@ -73,3 +73,6 @@ Desktop.ini
 *.zip
 *.tar
 *.tar.gz
+
+# Self-signed TLS certificates for LAN mic access (make_cert.sh)
+tls/

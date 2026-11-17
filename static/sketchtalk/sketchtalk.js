@@ -1840,9 +1840,14 @@
 
     setEngineBadge(CFG.aiEnabled ? (CFG.aiProvider === 'anthropic' ? 'claude' : CFG.aiProvider) : 'fallback');
     speechCaps = detectSpeechSupport();
-    if (!speechCaps.supported) {
+    if (window.isSecureContext === false) {
+        micBtn.classList.add('off');
+        micBtn.title = 'Mikrofon diblokir di http:// non-localhost';
+        interimEl.textContent = 'Mikrofon diblokir browser di alamat http:// ini (hanya localhost/https yang diizinkan) — ketik di bawah, atau buka via https://';
+    } else if (!speechCaps.supported) {
         markMicUnsupported();
     }
+    // end if
     resize();
     requestAnimationFrame(frame);
     // Re-measure all node boxes once webfonts are ready.

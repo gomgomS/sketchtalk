@@ -41,9 +41,20 @@ app.register_blueprint(sample_blueprint, url_prefix="/")
 app.register_blueprint(sketchtalk_blueprint, url_prefix="/")
 
 if __name__ == "__main__":
+    # Microphone access on OTHER devices requires HTTPS (browsers treat
+    # plain http://LAN-IP as insecure). Generate a self-signed cert:
+    #   bash make_cert.sh
+    # then run with SKETCHTALK_TLS_CERT/CERT_KEY set (see start_https.sh).
+    tls_cert = os.environ.get("SKETCHTALK_TLS_CERT", "").strip()
+    tls_key = os.environ.get("SKETCHTALK_TLS_KEY", "").strip()
+    ssl_context = None
+    if tls_cert != "" and tls_key != "":
+        ssl_context = (tls_cert, tls_key)
+    # end if
     app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "5004")),
-        debug=True
+        debug=True,
+        ssl_context=ssl_context
     )
 # end if

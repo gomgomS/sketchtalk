@@ -67,7 +67,7 @@ def html_mic_jump():
 
 def html_stage(room):
     proc = sketchtalk_proc()
-    code = proc.ensure_room(room or "")
+    code = proc.ensure_room(room or "", True)
     data = _base_data()
     provider = resolve_provider()
     data["ai_enabled"] = provider != "off"
@@ -79,7 +79,12 @@ def html_stage(room):
 
 def html_mic(room):
     proc = sketchtalk_proc()
-    code = proc.ensure_room(room or "")
+    code = proc.ensure_room((room or "").strip().upper(), False)
+    if code == None:
+        # A typo on the mic page must never create a parallel room —
+        # send the presenter back to the landing page with an explanation.
+        return redirect(url_for("sketchtalk_blueprint.home", error="Room tidak ditemukan. Periksa kode di layar presentasi lalu buka ulang tautan mic-nya."))
+    # end if
     data = _base_data()
     provider = resolve_provider()
     data["ai_enabled"] = provider != "off"
@@ -96,11 +101,15 @@ def json_room_state(room):
         since_raw = "0"
     # end if
     state = proc.room_state(sanitize.clean_html(room)[0:12], int(since_raw))
+    if state.get("directive") != None:
+        print("[SketchTalk] room " + str(room).upper() + " -> delivered seq " + str(state.get("seq")) + " source=" + str(state.get("source")) + " to stage poll", flush=True)
+    # end if
     return jsonify(state)
 # end def
 
 def json_interpret():
     if not csrf.validate():
+        print("[SketchTalk] interpret REJECTED (403): csrf token mismatch — reload the mic page", flush=True)
         return jsonify({"status": "ERROR", "desc": "Invalid session, reload the page"}), 403
     # end if
 

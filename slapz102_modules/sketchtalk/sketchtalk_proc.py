@@ -1185,7 +1185,9 @@ class sketchtalk_proc:
 
     mgdDB = database.get_db_conn(config.mainDB)
 
-    ROOM_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    # No look-alike characters (no B/8, S/5, I/L/1, O/0, 6/G) so room
+    # codes read unambiguously when typed on another device.
+    ROOM_ALPHABET = "ACDEFHJKMNPQRTUVWXYZ23479"
 
     def __init__(self, app=None):
         self.webapp = app
@@ -1206,7 +1208,15 @@ class sketchtalk_proc:
         return "".join(secrets.choice(self.ROOM_ALPHABET) for _ in range(10))
     # end def
 
-    def ensure_room(self, room_code):
+    def room_exists(self, room_code):
+        room_code = (room_code or "").strip().upper()[0:12]
+        if room_code == "":
+            return False
+        # end if
+        return self.mgdDB.db_sketchtalk_room.find_one({"room_code": room_code, "is_deleted": False}, {"_id": 0}) != None
+    # end def
+
+    def ensure_room(self, room_code, create=True):
         room_code = (room_code or "").strip().upper()[0:12]
         if room_code == "":
             room_code = self.new_room_code()
@@ -1214,6 +1224,9 @@ class sketchtalk_proc:
         existing = self.mgdDB.db_sketchtalk_room.find_one({"room_code": room_code, "is_deleted": False}, {"_id": 0})
         if existing != None:
             return room_code
+        # end if
+        if create == False:
+            return None
         # end if
         rec = database.new(self.mgdDB, "db_sketchtalk_room")
         rec.put("room_code", room_code)
@@ -1233,7 +1246,7 @@ class sketchtalk_proc:
         if room_code == "":
             return None
         # end if
-        self.ensure_room(room_code)
+        self.ensure_room(room_code, True)
         updated = self.mgdDB.db_sketchtalk_room.find_one_and_update(
             {"room_code": room_code, "is_deleted": False},
             {"$set": {
@@ -1250,6 +1263,7 @@ class sketchtalk_proc:
         if updated == None:
             return None
         # end if
+        print("[SketchTalk] room " + room_code + " <- push seq " + str(updated.get("last_seq", 0)) + " source=" + source[0:20] + " action=" + str(directive.get("action")), flush=True)
         return {"seq": updated.get("last_seq", 0)}
     # end def
 
