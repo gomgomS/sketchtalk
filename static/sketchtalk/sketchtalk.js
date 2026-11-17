@@ -35,6 +35,9 @@
     var pausedEl = document.getElementById('sk-paused');
     var toastEl = document.getElementById('sk-toast');
     var engineEl = document.getElementById('sk-engine');
+    var slowStatusEl = document.getElementById('sk-slow-status');
+    var modeFastBtn = document.getElementById('sk-mode-fast');
+    var modeSlowBtn = document.getElementById('sk-mode-slow');
 
     var INK = '#111111';
     var INK_SOFT = '#3f3f46';
@@ -1863,7 +1866,106 @@
     var RE_RESUME = /\b(lanjut(?:kan)?|continue|resume)\b/i;
     var RE_CLEAR = /(hapus layar|bersihkan layar|slide baru|halaman baru|mulai dari awal|clear screen|new slide|reset canvas)/i;
 
-    function onSpeech(text, isFinal) {
+    var genMode = 'fast';
+    var slowFlushTimer = 0;
+    try {
+        genMode = localStorage.getItem('sketchtalk-mode') === 'slow' ? 'slow' : 'fast';
+    } catch (err) {
+        genMode = 'fast';
+    }
+
+    function paintMode() {
+        if (modeFastBtn) {
+            modeFastBtn.style.background = genMode === 'fast' ? '#111' : '';
+            modeFastBtn.style.color = genMode === 'fast' ? '#fff' : '';
+        }
+        if (modeSlowBtn) {
+            modeSlowBtn.style.background = genMode === 'slow' ? '#111' : '';
+            modeSlowBtn.style.color = genMode === 'slow' ? '#fff' : '';
+        }
+        if (genMode !== 'slow' && slowStatusEl) {
+            slowStatusEl.textContent = '';
+        }
+    }
+
+    function showSlowStatus(status) {
+        if (!slowStatusEl) {
+            return;
+        }
+        if (genMode !== 'slow') {
+            slowStatusEl.textContent = '';
+            return;
+        }
+        var label = 'Slow · mendengarkan';
+        if (status === 'preparing') {
+            label = 'Slow · menyusun';
+        } else if (status === 'ready') {
+            label = 'Slow · slide berikutnya siap';
+        } else if (status === 'shown') {
+            label = 'Slow';
+        }
+        slowStatusEl.textContent = label;
+    }
+
+    function postMode() {
+        var payload = {
+            transcript: '',
+            lang: currentLang,
+            partial: false,
+            instant: false,
+            flush: false,
+            mode: genMode,
+            room: CFG.room || '',
+            source: SOURCE_ID
+        };
+        var body = new URLSearchParams();
+        body.set('csrf_token', CFG.csrfToken || '');
+        body.set('payload', JSON.stringify(payload));
+        fetch(CFG.interpretUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        }).catch(function () { });
+    }
+
+    function setGenMode(mode, announce) {
+        genMode = mode === 'slow' ? 'slow' : 'fast';
+        try {
+            localStorage.setItem('sketchtalk-mode', genMode);
+        } catch (err) {
+        }
+        paintMode();
+        if (announce) {
+            toast(genMode === 'slow' ? 'Slow — satu slide tiap gagasan, berikutnya disiapkan di belakang' : 'Fast — gambar mengikuti ucapan');
+            postMode();
+        }
+    }
+
+    function armSlowFlush(text) {
+        if (genMode !== 'slow') {
+            return;
+        }
+        if (slowFlushTimer) {
+            clearTimeout(slowFlushTimer);
+        }
+        slowFlushTimer = setTimeout(function () {
+            slowFlushTimer = 0;
+            if (genMode !== 'slow') {
+                return;
+            }
+            sendToServer(text, false, true);
+        }, 1700);
+    }
+
+    if (modeFastBtn) {
+        modeFastBtn.addEventListener('click', function () { setGenMode('fast', true); });
+    }
+    if (modeSlowBtn) {
+        modeSlowBtn.addEventListener('click', function () { setGenMode('slow', true); });
+    }
+    paintMode();
+
+    function onSpeech(text, isFinal, flushNow) {
         if (state.paused) {
             if (RE_RESUME.test(text)) {
                 setPaused(false);
@@ -1880,15 +1982,15 @@
             }
             lastPreviewAt = now;
             lastPreviewText = text;
-            sendToServer(text, true);
+            sendToServer(text, true, false);
         } else {
-            if (text === lastPreviewText && text === lastAppliedPreviewText) {
+            if (genMode !== 'slow' && text === lastPreviewText && text === lastAppliedPreviewText) {
                 // The final is exactly what the preview already rendered:
                 // skip the redundant AI call entirely.
                 console.log('[sketchtalk] final identical to rendered preview - request skipped');
                 return;
             }
-            sendToServer(text, false);
+            sendToServer(text, false, flushNow === true);
         }
     }
 
@@ -1903,7 +2005,7 @@
         });
     }
 
-    function sendToServer(text, partial) {
+    function sendToServer(text, partial, flush) {
         // Local fast paths (also enforced server-side).
         if (RE_PAUSE.test(text)) {
             setPaused(true);
@@ -1914,6 +2016,7 @@
             return;
         }
 
+        var slow = genMode === 'slow';
         var seq = ++seqCounter;
         var aiSeq = partial ? ++seqCounter : seq;
 
@@ -1923,7 +2026,9 @@
                 lang: currentLang,
                 is_paused: state.paused,
                 partial: partial,
-                instant: instant === true,
+                instant: slow ? false : instant === true,
+                flush: flush === true,
+                mode: genMode,
                 room: CFG.room || '',
                 source: SOURCE_ID,
                 seq: payloadSeq,
@@ -1945,7 +2050,10 @@
             });
         }
 
-        console.log('[sketchtalk] ->', partial ? 'partial' : 'final', 'seq' + seq, '"' + text + '"');
+        console.log('[sketchtalk] ->', partial ? 'partial' : 'final', slow ? genMode : '', 'seq' + seq, '"' + text + '"');
+        if (flush !== true) {
+            armSlowFlush(text);
+        }
         if (partial) {
             // Optimistic instant preview: the local engine answers in
             // milliseconds and paints a provisional card; the AI result
@@ -1965,6 +2073,9 @@
                     }
                 })
                 .catch(function () { });
+            if (slow) {
+                return;
+            }
         }
         sendRequest();
         function sendRequest() {
@@ -1989,12 +2100,18 @@
                         if (typeof result.room_seq === 'number') {
                             lastRoomSeq = Math.max(lastRoomSeq, result.room_seq);
                         }
-                        if (result.engine && !result.instant) {
+                        if (result.gen_mode === 'slow') {
+                            showSlowStatus(result.slow_status || '');
+                        } else if (result.engine && !result.instant) {
                             setEngineBadge(result.engine);
                         }
-                        if (result.directive.action === 'IGNORE') {
+                        if (result.directive.action === 'IGNORE' && result.gen_mode !== 'slow') {
                             var heard = text.length > 44 ? text.slice(0, 44) + '…' : text;
                             interimEl.textContent = '· didengar, belum ada gagasan visual: "' + heard + '" ·';
+                        }
+                        if (result.gen_mode === 'slow' && result.directive.action === 'IGNORE') {
+                            var slowLabel = result.slow_status === 'ready' ? 'slide berikutnya siap' : (result.slow_status === 'preparing' ? 'menyusun slide' : 'mendengarkan, slide menyusul jeda');
+                            interimEl.textContent = 'Slow · ' + slowLabel;
                         }
                         if (partial) {
                             lastAppliedPreviewText = text;
@@ -2024,7 +2141,7 @@
         }
         interimEl.textContent = '✓ "' + val + '"';
         inputEl.value = '';
-        onSpeech(val, true);
+        onSpeech(val, true, true);
     });
 
     sendBtn.addEventListener('click', function () {
@@ -2034,14 +2151,14 @@
         }
         interimEl.textContent = '✓ "' + val + '"';
         inputEl.value = '';
-        onSpeech(val, true);
+        onSpeech(val, true, true);
     });
 
     document.querySelectorAll('.sk-sample').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var text = btn.getAttribute('data-text') || '';
             interimEl.textContent = '✓ "' + text + '"';
-            onSpeech(text, true);
+            onSpeech(text, true, true);
         });
     });
 
@@ -2133,7 +2250,16 @@
         fetch(CFG.stateUrl + '?since=' + lastRoomSeq)
             .then(function (res) { return res.json(); })
             .then(function (st) {
-                if (st && st.directive && typeof st.seq === 'number' && st.seq > lastRoomSeq && st.source !== SOURCE_ID) {
+                if (!st) {
+                    return;
+                }
+                if (st.gen_mode === 'slow' || st.gen_mode === 'fast') {
+                    if (st.gen_mode !== genMode) {
+                        setGenMode(st.gen_mode, false);
+                    }
+                    showSlowStatus(st.slow_status || '');
+                }
+                if (st.directive && typeof st.seq === 'number' && st.seq > lastRoomSeq && st.source !== SOURCE_ID) {
                     lastRoomSeq = st.seq;
                     applyDirective(st.directive, { partial: st.partial === true });
                 }

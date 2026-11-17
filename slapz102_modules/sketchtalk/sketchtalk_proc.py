@@ -10,6 +10,7 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -1176,7 +1177,7 @@ def _slide_brief(slide):
     return "beat=" + beat + ", kicker=" + kicker + ", headline=" + headline
 # end def
 
-def _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide):
+def _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide, note=""):
     safe_canvas = []
     for obj in canvas_objects[0:MAX_OBJECTS]:
         if isinstance(obj, dict):
@@ -1193,15 +1194,18 @@ def _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, sli
     text = text + "CURRENT_SLIDE: " + _slide_brief(slide) + "\n"
     text = text + "CURRENT_CANVAS_OBJECTS: " + json.dumps(safe_canvas, ensure_ascii=False) + "\n"
     text = text + ("TRANSCRIPT (PARSIAL): " if partial else "TRANSCRIPT: ") + transcript
+    if note != "":
+        text = note + "\n" + text
+    # end if
     return text
 # end def
 
-def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide=None):
+def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide=None, note=""):
     if config.G_DEEPSEEK_API_KEY == "":
         return None
     # end if
 
-    user_text = _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide)
+    user_text = _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide, note)
 
     # JSON mode requires the word "json" to appear in the prompt — the
     # Visual Director system prompt already demands STRICT JSON output.
@@ -1268,13 +1272,13 @@ def _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide=No
 # The Claude-powered Visual Director.
 # ---------------------------------------------------------------------------
 
-def _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide=None):
+def _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide=None, note=""):
     client = _get_client()
     if client == None:
         return None
     # end if
 
-    user_text = _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide)
+    user_text = _runtime_user_text(transcript, lang, is_paused, canvas_objects, partial, slide, note)
 
     system_text = SYSTEM_PROMPT_BASE + _icon_prompt_text()
 
@@ -1320,6 +1324,232 @@ def _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide=No
         return None
     # end try
     return _validate_directive(parsed, transcript)
+# end def
+
+# ---------------------------------------------------------------------------
+# Generation modes.
+# Fast: every committed phrase is drawn immediately (the existing path).
+# Slow: wait until one idea is solid, draw that single slide, and while it
+# is on screen compose the next idea in the background so the following
+# pause can reveal it without another wait.
+# ---------------------------------------------------------------------------
+
+SLOW_COMMIT_WORDS = 8
+SLOW_FORCE_WORDS = 28
+SLOW_SENTENCE_WORDS = 12
+SLOW_LOOKAHEAD_WORDS = 8
+SLOW_STALE_EXTRA = 5
+SLOW_WAIT_SEC = 8
+
+SLOW_NOTE_TEXT = "MODE LAMBAT — SATU SEGMEN UTUH. Transkrip ini sudah cukup untuk satu slide, bukan potongan. Pahami gagasan intinya dulu, lalu buat SATU slide yang membuat gagasan itu terbaca dalam satu lihat. Headline ditulis seperti baris di layar, bukan salinan ucapan. Pilih satu beat. Gambar hanya jika membuat gagasan lebih cepat dipahami. Jangan IGNORE."
+
+_SLOW = {}
+_SLOW_LOCKS = {}
+_SLOW_GUARD = threading.Lock()
+
+def _word_count(text):
+    return len(re.findall(r"[A-Za-z0-9]+", text or ""))
+# end def
+
+def _norm_talk(text):
+    return " ".join((text or "").split())
+# end def
+
+def _ends_sentence(text):
+    tail = (text or "").rstrip()
+    if tail == "":
+        return False
+    # end if
+    return tail[-1] in ".!?"
+# end def
+
+def _segment_ready(text, flush):
+    count = _word_count(text)
+    if count >= SLOW_FORCE_WORDS:
+        return True
+    # end if
+    if count >= SLOW_COMMIT_WORDS and flush == True:
+        return True
+    # end if
+    if count >= SLOW_SENTENCE_WORDS and _ends_sentence(text):
+        return True
+    # end if
+    return False
+# end def
+
+def _extends_talk(base, incoming):
+    left = _norm_talk(base).lower()
+    right = _norm_talk(incoming).lower()
+    if left == "" or right == "":
+        return True
+    # end if
+    if right.startswith(left) or left.startswith(right):
+        return True
+    # end if
+    if left.endswith(right):
+        return True
+    # end if
+    return False
+# end def
+
+def _merge_talk(buffer_text, incoming):
+    current = _norm_talk(buffer_text)
+    fresh = _norm_talk(incoming)
+    if fresh == "":
+        return current
+    # end if
+    if current == "":
+        return fresh[0:1800]
+    # end if
+    if _extends_talk(current, fresh):
+        if len(fresh) >= len(current):
+            return fresh[0:1800]
+        # end if
+        return current[0:1800]
+    # end if
+    if current.lower().endswith(fresh.lower()):
+        return current[0:1800]
+    # end if
+    return (current + " " + fresh)[0:1800]
+# end def
+
+def _unshown_talk(buffer_text, shown_text):
+    current = _norm_talk(buffer_text)
+    shown = _norm_talk(shown_text)
+    if shown == "":
+        return current
+    # end if
+    if current.lower().startswith(shown.lower()):
+        return current[len(shown):].strip()
+    # end if
+    return current
+# end def
+
+def _covers_talk(unshown, prepared_text):
+    live = _norm_talk(unshown).lower()
+    prepared = _norm_talk(prepared_text).lower()
+    if live == "" or prepared == "":
+        return False
+    # end if
+    if live.startswith(prepared) or prepared.startswith(live):
+        return True
+    # end if
+    return False
+# end def
+
+def _slow_note(shown_text):
+    note = SLOW_NOTE_TEXT
+    shown = _norm_talk(shown_text)
+    if shown != "":
+        note = note + " SEGMEN SEBELUMNYA (jangan diulang): " + shown[-280:]
+    # end if
+    return note
+# end def
+
+def _slow_key(room):
+    room = (room or "").strip().upper()[0:12]
+    if room == "":
+        return "_local"
+    # end if
+    return room
+# end def
+
+def _slow_lock(key):
+    with _SLOW_GUARD:
+        lock = _SLOW_LOCKS.get(key)
+        if lock == None:
+            lock = threading.Lock()
+            _SLOW_LOCKS[key] = lock
+        # end if
+        return lock
+    # end with
+# end def
+
+def _slow_get(key):
+    with _SLOW_GUARD:
+        state = _SLOW.get(key)
+        if state == None:
+            state = {
+                "mode": "fast",
+                "buffer": "",
+                "shown": "",
+                "prepared": None,
+                "prepared_text": "",
+                "prepared_engine": "fallback",
+                "preparing": "",
+                "status": "",
+                "event": threading.Event()
+            }
+            state["event"].set()
+            _SLOW[key] = state
+        # end if
+        return state
+    # end with
+# end def
+
+def _compose_directive(transcript, lang, is_paused, canvas_objects, partial, instant, slide, note=""):
+    directive = None
+    engine = "fallback"
+    provider = "off" if instant else resolve_provider()
+    started = time.time()
+    if provider == "deepseek":
+        try:
+            directive = _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide, note)
+            if directive != None:
+                engine = "deepseek"
+            # end if
+        except Exception as e:
+            print("[SketchTalk] DeepSeek engine FAILED, using fallback -> " + str(e), flush=True)
+        # end try
+    elif provider == "anthropic":
+        try:
+            directive = _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide, note)
+            if directive != None:
+                engine = "claude"
+            # end if
+        except Exception as e:
+            print("[SketchTalk] Claude engine FAILED, using fallback -> " + str(e), flush=True)
+        # end try
+    else:
+        if instant:
+            print("[SketchTalk] instant preview: local engine by design (bukan error)", flush=True)
+        else:
+            print("[SketchTalk] no AI provider configured, using offline fallback", flush=True)
+        # end if
+    # end if
+    if directive != None and directive.get("action") == "IGNORE":
+        word_count = len(re.findall(r"[a-zA-Z]+", transcript))
+        if word_count > 2:
+            print("[SketchTalk] policy enforce: engine returned IGNORE for a " + str(word_count) + "-word transcript -> forcing illustration via fallback", flush=True)
+            directive = None
+        # end if
+    # end if
+    if directive == None:
+        directive = _fallback_director(transcript, canvas_objects)
+    # end if
+    directive = _hold_screen_if_blank(directive)
+
+    elapsed = round(time.time() - started, 2)
+    icons = []
+    for obj in directive.get("objects", []):
+        icons.append(str(obj.get("icon")))
+    # end for
+    print("[SketchTalk] result: engine=" + engine + " action=" + str(directive.get("action")) + " beat=" + str(directive.get("beat")) + " headline='" + str(directive.get("headline") or "") + "' hero='" + str(directive.get("hero_stat") or "") + "' layout=" + str(directive.get("layout")) + " time=" + str(directive.get("time_context")) + " objects=" + str(icons) + " (" + str(elapsed) + "s)", flush=True)
+    for obj in directive.get("objects", []):
+        label = str(obj.get("label") or "")
+        est_px = len(label) * 10
+        fit = "OK"
+        if len(label) > 30:
+            fit = "CLAMPED-32chars"
+        elif est_px > 196:
+            fit = "WRAP-2lines"
+        # end if
+        print("[SketchTalk]   card " + str(obj.get("id")) + ": icon=" + str(obj.get("icon")) + " label='" + label + "' (" + str(len(label)) + " ch, ~" + str(est_px) + "px, " + fit + ") stat=" + str(obj.get("highlight_stat")) + " role=" + str(obj.get("role")), flush=True)
+    # end for
+    if directive.get("action") == "IGNORE":
+        print("[SketchTalk] policy: IGNORE hanya untuk interjeksi <=2 kata; ucapan lain WAJIB jadi ilustrasi", flush=True)
+    # end if
+    return engine, directive
 # end def
 
 # ---------------------------------------------------------------------------
@@ -1428,13 +1658,57 @@ class sketchtalk_proc:
         return {"seq": seq}
     # end def
 
+    def set_gen_mode(self, room, mode):
+        if mode != "slow":
+            mode = "fast"
+        # end if
+        key = _slow_key(room)
+        state = _slow_get(key)
+        lock = _slow_lock(key)
+        with lock:
+            if state["mode"] == mode:
+                return mode
+            # end if
+            state["mode"] = mode
+            if mode == "fast":
+                state["buffer"] = ""
+                state["shown"] = ""
+                state["prepared"] = None
+                state["prepared_text"] = ""
+                state["preparing"] = ""
+                state["status"] = ""
+                state["event"].set()
+            else:
+                state["status"] = "listening"
+            # end if
+        # end with
+        print("[SketchTalk] mode " + key + " -> " + mode, flush=True)
+        return mode
+    # end def
+
+    def slow_public(self, room):
+        key = _slow_key(room)
+        state = _SLOW.get(key)
+        if state == None:
+            return {"mode": "", "status": ""}
+        # end if
+        return {"mode": state.get("mode") or "fast", "status": state.get("status") or ""}
+    # end def
+
+    def _annotate_state(self, room_code, payload):
+        info = self.slow_public(room_code)
+        payload["gen_mode"] = info["mode"]
+        payload["slow_status"] = info["status"]
+        return payload
+    # end def
+
     def room_state(self, room_code, since):
         room_code = (room_code or "").strip().upper()[0:12]
         room = self.mgdDB.db_sketchtalk_room.find_one(
             {"room_code": room_code, "is_deleted": False}, {"_id": 0}
         )
         if room == None:
-            return {"seq": 0, "source": "", "engine": "", "directive": None, "partial": False}
+            return self._annotate_state(room_code, {"seq": 0, "source": "", "engine": "", "directive": None, "partial": False})
         # end if
         # Deliver the newest tier that is newer than the poller's seq.
         # A final (AI) result always beats a newer-numbered stale preview,
@@ -1449,18 +1723,335 @@ class sketchtalk_proc:
             chosen = {"seq": preview_seq, "directive": room.get("preview_directive"), "partial": True}
         # end if
         if chosen == None or chosen["directive"] == None:
-            return {"seq": since, "source": "", "engine": "", "directive": None, "partial": False}
+            return self._annotate_state(room_code, {"seq": since, "source": "", "engine": "", "directive": None, "partial": False})
         # end if
-        return {
+        return self._annotate_state(room_code, {
             "seq": chosen["seq"],
             "source": room.get("last_source", ""),
             "engine": room.get("last_engine", ""),
             "directive": chosen["directive"],
             "partial": chosen["partial"]
+        })
+    # end def
+
+    def _slow_context(self, room, canvas_objects, slide):
+        if room == "":
+            return canvas_objects, slide
+        # end if
+        # 1. WHAT
+        query = {}
+        query["room_code"] = room
+        query["is_deleted"] = False
+        # 2. WHICH FIELDS
+        projection = {}
+        projection["_id"] = 0
+        projection["final_directive"] = 1
+        # 3. HOW — one room
+        # 4. RUN
+        doc = self.mgdDB.db_sketchtalk_room.find_one(query, projection)
+        if doc == None:
+            return canvas_objects, slide
+        # end if
+        directive = doc.get("final_directive") or {}
+        if not isinstance(directive, dict):
+            return canvas_objects, slide
+        # end if
+        if (canvas_objects == None or len(canvas_objects) == 0) and isinstance(directive.get("objects"), list):
+            canvas_objects = directive.get("objects")
+        # end if
+        if slide == None or (slide.get("headline") or "") == "":
+            slide = {
+                "beat": directive.get("beat") or "scene",
+                "kicker": directive.get("kicker") or "",
+                "headline": directive.get("headline") or ""
+            }
+        # end if
+        return canvas_objects, slide
+    # end def
+
+    def _slow_mark_shown(self, key, committed):
+        state = _slow_get(key)
+        lock = _slow_lock(key)
+        with lock:
+            shown = _norm_talk(state["shown"])
+            committed = _norm_talk(committed)
+            if shown == "":
+                state["shown"] = committed
+            else:
+                state["shown"] = (shown + " " + committed).strip()
+            # end if
+            current = _norm_talk(state["buffer"])
+            if current.lower().startswith(state["shown"].lower()) == False:
+                state["shown"] = current
+            # end if
+            rest = _unshown_talk(state["buffer"], state["shown"])
+            if state["prepared_text"] != "" and _covers_talk(rest, state["prepared_text"]) == False:
+                state["prepared"] = None
+                state["prepared_text"] = ""
+            # end if
+            state["status"] = "shown"
+        # end with
+    # end def
+
+    def _slow_hold(self, key):
+        state = _slow_get(key)
+        lock = _slow_lock(key)
+        with lock:
+            if state["prepared"] != None:
+                status = "ready"
+            elif state["preparing"] != "":
+                status = "preparing"
+            else:
+                status = "listening"
+            # end if
+            state["status"] = status
+            pending = _word_count(_unshown_talk(state["buffer"], state["shown"]))
+        # end with
+        print("[SketchTalk] slow: " + status + " (" + str(pending) + " words held)", flush=True)
+        return {
+            "status": "SUCCESS",
+            "engine": "slow",
+            "gen_mode": "slow",
+            "slow_status": status,
+            "directive": {"action": "IGNORE", "topic_summary": "", "layout": "single", "objects": []}
         }
     # end def
 
-    def interpret(self, transcript, lang, is_paused, canvas_objects, partial, instant, room="", source="", slide=None):
+    def _slow_maybe_prepare(self, key, room, lang, canvas_objects, slide):
+        state = _slow_get(key)
+        lock = _slow_lock(key)
+        with lock:
+            if state["shown"] == "":
+                return
+            # end if
+            unshown = _unshown_talk(state["buffer"], state["shown"])
+            if _word_count(unshown) < SLOW_LOOKAHEAD_WORDS:
+                return
+            # end if
+            if state["prepared"] != None or state["preparing"] != "":
+                return
+            # end if
+            snapshot = unshown
+            shown = state["shown"]
+            state["preparing"] = snapshot
+            state["status"] = "preparing"
+            state["event"].clear()
+        # end with
+        self._slow_run_prepare(key, room, snapshot, shown, lang, canvas_objects, slide)
+    # end def
+
+    def _slow_run_prepare(self, key, room, snapshot, shown, lang, canvas_objects, slide):
+        def run():
+            directive = None
+            engine = "fallback"
+            try:
+                canvas, slide_now = self._slow_context(room, canvas_objects, slide)
+                engine, directive = _compose_directive(snapshot, lang, False, canvas, False, False, slide_now, _slow_note(shown))
+            except Exception as e:
+                print("[SketchTalk] slow prepare failed -> " + str(e), flush=True)
+            # end try
+            lock = _slow_lock(key)
+            with lock:
+                state = _SLOW.get(key)
+                if state == None:
+                    return
+                # end if
+                if state["preparing"] == snapshot and directive != None and directive.get("action") != "IGNORE":
+                    state["prepared"] = directive
+                    state["prepared_text"] = snapshot
+                    state["prepared_engine"] = engine
+                    state["status"] = "ready"
+                    print("[SketchTalk] slow: next segment ready (" + str(_word_count(snapshot)) + " words)", flush=True)
+                # end if
+                if state["preparing"] == snapshot:
+                    state["preparing"] = ""
+                # end if
+                state["event"].set()
+            # end with
+        # end def
+        if resolve_provider() == "off":
+            run()
+        else:
+            worker = threading.Thread(target=run, name="sk-slow", daemon=True)
+            worker.start()
+        # end if
+    # end def
+
+    def _slow_reveal(self, key, room, source, directive, prepared_text, engine):
+        self._slow_mark_shown(key, prepared_text)
+        print("[SketchTalk] slow: reveal prepared segment", flush=True)
+        envelope = {
+            "status": "SUCCESS",
+            "engine": engine,
+            "gen_mode": "slow",
+            "slow_status": "shown",
+            "directive": directive
+        }
+        if room != "":
+            pushed = self.push_to_room(room, source, engine, directive, False, False)
+            if pushed != None:
+                envelope["room_seq"] = pushed["seq"]
+            # end if
+        # end if
+        return envelope
+    # end def
+
+    def _slow_compose_now(self, key, room, source, lang, canvas_objects, slide, unshown, shown):
+        state = _slow_get(key)
+        lock = _slow_lock(key)
+        with lock:
+            if state["preparing"] != "":
+                return None
+            # end if
+            state["preparing"] = unshown
+            state["status"] = "preparing"
+            state["event"].clear()
+        # end with
+        canvas, slide_now = self._slow_context(room, canvas_objects, slide)
+        engine = "fallback"
+        directive = None
+        try:
+            engine, directive = _compose_directive(unshown, lang, False, canvas, False, False, slide_now, _slow_note(shown))
+        except Exception as e:
+            print("[SketchTalk] slow compose failed -> " + str(e), flush=True)
+        finally:
+            with lock:
+                if state["preparing"] == unshown:
+                    state["preparing"] = ""
+                # end if
+                state["event"].set()
+            # end with
+        # end try
+        if directive == None or directive.get("action") == "IGNORE":
+            return self._slow_hold(key)
+        # end if
+        self._slow_mark_shown(key, unshown)
+        self._slow_maybe_prepare(key, room, lang, canvas_objects, slide)
+        envelope = {
+            "status": "SUCCESS",
+            "engine": engine,
+            "gen_mode": "slow",
+            "slow_status": "shown",
+            "directive": directive
+        }
+        if room != "":
+            pushed = self.push_to_room(room, source, engine, directive, False, False)
+            if pushed != None:
+                envelope["room_seq"] = pushed["seq"]
+            # end if
+        # end if
+        return envelope
+    # end def
+
+    def _slow_turn(self, transcript, lang, canvas_objects, partial, room, source, slide, flush):
+        key = _slow_key(room)
+        state = _slow_get(key)
+        lock = _slow_lock(key)
+        incoming = _norm_talk(transcript)[0:600]
+        phrase_final = partial != True
+        with lock:
+            state["mode"] = "slow"
+            state["buffer"] = _merge_talk(state["buffer"], incoming)
+            if len(state["buffer"]) > 1800:
+                state["buffer"] = state["buffer"][-1400:].lstrip()
+                state["shown"] = ""
+                state["prepared"] = None
+                state["prepared_text"] = ""
+            # end if
+            unshown = _unshown_talk(state["buffer"], state["shown"])
+            if state["prepared_text"] != "" and _covers_talk(unshown, state["prepared_text"]) == False:
+                state["prepared"] = None
+                state["prepared_text"] = ""
+            # end if
+            ready = _segment_ready(unshown, flush)
+            prepared = state["prepared"]
+            prepared_text = state["prepared_text"]
+            prepared_engine = state["prepared_engine"]
+            preparing = state["preparing"]
+            shown = state["shown"]
+            extra = _word_count(unshown) - _word_count(prepared_text)
+        # end with
+
+        # The draft was for a shorter cut of an idea that is still growing.
+        if prepared != None and flush != True and extra >= SLOW_STALE_EXTRA and _covers_talk(unshown, prepared_text):
+            with lock:
+                if state["prepared_text"] == prepared_text:
+                    state["prepared"] = None
+                    state["prepared_text"] = ""
+                # end if
+            # end with
+            prepared = None
+        # end if
+
+        # Pause landed on a draft that still matches the words just spoken.
+        if prepared != None and flush == True and ready and _covers_talk(unshown, prepared_text) and extra < SLOW_STALE_EXTRA:
+            envelope = self._slow_reveal(key, room, source, prepared, prepared_text, prepared_engine)
+            self._slow_maybe_prepare(key, room, lang, canvas_objects, slide)
+            return envelope
+        # end if
+
+        # The speaker has moved on to the next point. Show the draft now.
+        if prepared != None and phrase_final and _extends_talk(prepared_text, incoming) == False and _word_count(incoming) >= 3 and _covers_talk(unshown, prepared_text):
+            envelope = self._slow_reveal(key, room, source, prepared, prepared_text, prepared_engine)
+            self._slow_maybe_prepare(key, room, lang, canvas_objects, slide)
+            return envelope
+        # end if
+
+        # A draft for this pause is still being written. Wait for it.
+        if ready and prepared == None and preparing != "" and _covers_talk(unshown, preparing):
+            state["event"].wait(SLOW_WAIT_SEC)
+            with lock:
+                prepared = state["prepared"]
+                prepared_text = state["prepared_text"]
+                prepared_engine = state["prepared_engine"]
+                unshown = _unshown_talk(state["buffer"], state["shown"])
+            # end with
+            if prepared != None and _covers_talk(unshown, prepared_text) and (_word_count(unshown) - _word_count(prepared_text)) < SLOW_STALE_EXTRA:
+                envelope = self._slow_reveal(key, room, source, prepared, prepared_text, prepared_engine)
+                self._slow_maybe_prepare(key, room, lang, canvas_objects, slide)
+                return envelope
+            # end if
+        # end if
+
+        # The idea is solid and nothing is waiting in the background.
+        if ready and (prepared == None or _covers_talk(unshown, prepared_text) == False or extra >= SLOW_STALE_EXTRA):
+            composed = self._slow_compose_now(key, room, source, lang, canvas_objects, slide, unshown, shown)
+            if composed != None:
+                return composed
+            # end if
+            state["event"].wait(SLOW_WAIT_SEC)
+            with lock:
+                prepared = state["prepared"]
+                prepared_text = state["prepared_text"]
+                prepared_engine = state["prepared_engine"]
+                unshown = _unshown_talk(state["buffer"], state["shown"])
+                shown = state["shown"]
+                still_busy = state["preparing"] != ""
+            # end with
+            if prepared != None and _covers_talk(unshown, prepared_text) and (_word_count(unshown) - _word_count(prepared_text)) < SLOW_STALE_EXTRA:
+                return self._slow_reveal(key, room, source, prepared, prepared_text, prepared_engine)
+            # end if
+            if still_busy == False:
+                composed = self._slow_compose_now(key, room, source, lang, canvas_objects, slide, unshown, shown)
+                if composed != None:
+                    return composed
+                # end if
+            # end if
+            return self._slow_hold(key)
+        # end if
+
+        # Current slide is up. Start the next one while the speaker continues.
+        if shown != "" and phrase_final and _word_count(unshown) >= SLOW_LOOKAHEAD_WORDS:
+            self._slow_maybe_prepare(key, room, lang, canvas_objects, slide)
+        # end if
+        return self._slow_hold(key)
+    # end def
+
+    def interpret(self, transcript, lang, is_paused, canvas_objects, partial, instant, room="", source="", slide=None, mode="fast", flush=False):
+        if mode != "slow":
+            mode = "fast"
+        # end if
+        self.set_gen_mode(room, mode)
         lower = (transcript or "").lower()
 
         # Deterministic voice-command layer (spec: STATE & VOICE COMMANDS).
@@ -1478,85 +2069,40 @@ class sketchtalk_proc:
         # end if
         if _contains_any(lower, CLEAR_PHRASES):
             print("[SketchTalk] command: CLEAR keyword matched", flush=True)
+            key = _slow_key(room)
+            if key in _SLOW:
+                state = _SLOW[key]
+                lock = _slow_lock(key)
+                with lock:
+                    state["prepared"] = None
+                    state["prepared_text"] = ""
+                    state["preparing"] = ""
+                    state["event"].set()
+                # end with
+            # end if
             return {"status": "SUCCESS", "engine": "command", "directive": {"action": "CLEAR_AND_DRAW", "topic_summary": "", "layout": "single", "objects": [], "cleared": True}}
         # end if
 
         greeting = _match_greeting(lower)
         if greeting != None:
             print("[SketchTalk] greeting: " + greeting["icon"] + " '" + greeting["label"] + "'", flush=True)
-            return {"status": "SUCCESS", "engine": "fallback", "directive": _greeting_directive(greeting)}
-        # end if
-
-        directive = None
-        engine = "fallback"
-        provider = "off" if instant else resolve_provider()
-        started = time.time()
-        if provider == "deepseek":
-            try:
-                directive = _ask_deepseek(transcript, lang, is_paused, canvas_objects, partial, slide)
-                if directive != None:
-                    engine = "deepseek"
+            directive = _greeting_directive(greeting)
+            envelope = {"status": "SUCCESS", "engine": "fallback", "directive": directive, "gen_mode": mode}
+            if mode == "slow" and room != "":
+                pushed = self.push_to_room(room, source, "fallback", directive, False, False)
+                if pushed != None:
+                    envelope["room_seq"] = pushed["seq"]
                 # end if
-            except Exception as e:
-                print("[SketchTalk] DeepSeek engine FAILED, using fallback -> " + str(e), flush=True)
-            # end try
-        elif provider == "anthropic":
-            try:
-                directive = _ask_director(transcript, lang, is_paused, canvas_objects, partial, slide)
-                if directive != None:
-                    engine = "claude"
-                # end if
-            except Exception as e:
-                print("[SketchTalk] Claude engine FAILED, using fallback -> " + str(e), flush=True)
-            # end try
-        else:
-            if instant:
-                # Instant previews skip the AI on purpose (speed feature).
-                print("[SketchTalk] instant preview: local engine by design (bukan error)", flush=True)
-            else:
-                print("[SketchTalk] no AI provider configured, using offline fallback", flush=True)
             # end if
-        # end if
-        # Policy enforcement: IGNORE is only valid for ultra-short
-        # interjections. If the engine tries to ignore anything longer,
-        # force an illustration through the fallback so every statement
-        # the speaker makes appears on screen.
-        if directive != None and directive.get("action") == "IGNORE":
-            word_count = len(re.findall(r"[a-zA-Z]+", transcript))
-            if word_count > 2:
-                print("[SketchTalk] policy enforce: engine returned IGNORE for a " + str(word_count) + "-word transcript -> forcing illustration via fallback", flush=True)
-                directive = None
-            # end if
-        # end if
-        if directive == None:
-            directive = _fallback_director(transcript, canvas_objects)
-        # end if
-        directive = _hold_screen_if_blank(directive)
-
-        elapsed = round(time.time() - started, 2)
-        icons = []
-        for obj in directive.get("objects", []):
-            icons.append(str(obj.get("icon")))
-        # end for
-        print("[SketchTalk] result: engine=" + engine + " action=" + str(directive.get("action")) + " beat=" + str(directive.get("beat")) + " headline='" + str(directive.get("headline") or "") + "' hero='" + str(directive.get("hero_stat") or "") + "' layout=" + str(directive.get("layout")) + " time=" + str(directive.get("time_context")) + " objects=" + str(icons) + " (" + str(elapsed) + "s)", flush=True)
-        # Per-object text diagnostics: the browser card wraps labels wider
-        # than ~196px onto two fixed lines and clamps labels over 32 chars.
-        for obj in directive.get("objects", []):
-            label = str(obj.get("label") or "")
-            est_px = len(label) * 10
-            fit = "OK"
-            if len(label) > 30:
-                fit = "CLAMPED-32chars"
-            elif est_px > 196:
-                fit = "WRAP-2lines"
-            # end if
-            print("[SketchTalk]   card " + str(obj.get("id")) + ": icon=" + str(obj.get("icon")) + " label='" + label + "' (" + str(len(label)) + " ch, ~" + str(est_px) + "px, " + fit + ") stat=" + str(obj.get("highlight_stat")) + " role=" + str(obj.get("role")), flush=True)
-        # end for
-        if directive.get("action") == "IGNORE":
-            print("[SketchTalk] policy: IGNORE hanya untuk interjeksi <=2 kata; ucapan lain WAJIB jadi ilustrasi", flush=True)
+            return envelope
         # end if
 
-        envelope = {"status": "SUCCESS", "engine": engine, "directive": directive}
+        if mode == "slow":
+            return self._slow_turn(transcript, lang, canvas_objects, partial, room, source, slide, flush == True)
+        # end if
+
+        engine, directive = _compose_directive(transcript, lang, is_paused, canvas_objects, partial, instant, slide, "")
+        envelope = {"status": "SUCCESS", "engine": engine, "directive": directive, "gen_mode": "fast"}
         if instant:
             envelope["instant"] = True
         # end if

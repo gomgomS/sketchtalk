@@ -35,6 +35,7 @@ _proc.MISSING_ICONS_DIR = os.path.join(tempfile.gettempdir(), "sk_missing_icons_
 
 @pytest.fixture()
 def client():
+    _proc._SLOW.clear()
     db = database.get_db_conn(config.mainDB)
     db.client.drop_database(config.mainDB)
     server.app.config["TESTING"] = True
@@ -77,6 +78,8 @@ def test_page_renders(client):
     assert "sk-canvas" in html
     assert "Mulai berbicara" in html
     assert "csrfToken" in html
+    assert "sk-mode-fast" in html
+    assert "sk-mode-slow" in html
 # end def
 
 
@@ -691,4 +694,69 @@ def test_provider_resolution():
     assert proc.resolve_provider() == "off"
     proc.config.G_DEEPSEEK_API_KEY = ""
     proc.config.G_SKETCHTALK_PROVIDER = "auto"
+# end def
+
+
+def test_fast_mode_still_draws_immediately():
+    _proc._SLOW.clear()
+    text = "Masalah utama bisnis kita sekarang adalah biaya operasional yang membengkak"
+    result = _proc.sketchtalk_proc().interpret(text, "id-ID", False, [], False, False)
+    assert result["gen_mode"] == "fast"
+    assert result["directive"]["action"] in ["CLEAR_AND_DRAW", "UPDATE"]
+# end def
+
+
+def test_slow_mode_waits_for_a_finished_idea():
+    _proc._SLOW.clear()
+    proc = _proc.sketchtalk_proc()
+    text = "Masalah utama bisnis kita sekarang adalah biaya operasional yang membengkak"
+    held = proc.interpret(text, "id-ID", False, [], False, False, "", "", None, "slow", False)
+    assert held["directive"]["action"] == "IGNORE"
+    assert held["slow_status"] == "listening"
+    assert held["gen_mode"] == "slow"
+
+    drawn = proc.interpret(text, "id-ID", False, [], False, False, "", "", None, "slow", True)
+    assert drawn["directive"]["action"] == "CLEAR_AND_DRAW"
+    assert drawn["slow_status"] == "shown"
+# end def
+
+
+def test_slow_mode_prepares_the_next_segment():
+    _proc._SLOW.clear()
+    proc = _proc.sketchtalk_proc()
+    first = "Masalah utama bisnis kita sekarang adalah biaya operasional yang membengkak"
+    opened = proc.interpret(first, "id-ID", False, [], False, False, "", "", None, "slow", True)
+    assert opened["directive"]["action"] == "CLEAR_AND_DRAW"
+
+    second = "Dengan sistem otomasi baru kita memangkas biaya hingga enam puluh persen"
+    heard = proc.interpret(second, "id-ID", False, [], False, False, "", "", None, "slow", False)
+    assert heard["directive"]["action"] == "IGNORE"
+    assert heard["slow_status"] == "ready"
+
+    revealed = proc.interpret(second, "id-ID", False, [], False, False, "", "", None, "slow", True)
+    assert revealed["directive"]["action"] == "CLEAR_AND_DRAW"
+    assert revealed["directive"].get("topic_summary") not in [None, ""]
+# end def
+
+
+def test_slow_mode_http_holds_a_fragment(client):
+    token = _get_csrf_token(client)
+    payload = {
+        "transcript": "biaya naik",
+        "lang": "id-ID",
+        "partial": True,
+        "mode": "slow",
+        "flush": False,
+        "room": "SLOWHM",
+        "canvas_objects": []
+    }
+    res = client.post(
+        "/sketchtalk/interpret",
+        data={"csrf_token": token, "payload": json.dumps(payload)}
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["gen_mode"] == "slow"
+    assert body["directive"]["action"] == "IGNORE"
+    assert body["slow_status"] == "listening"
 # end def

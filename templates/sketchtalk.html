@@ -39,6 +39,7 @@
         <span class="mx-2 text-line">|</span>
         <span id="sk-engine" class="font-mono text-[11px] uppercase tracking-widest text-mute"
               title="Engine Visual Director">engine: &hellip;</span>
+        <span id="sk-slow-status" class="font-mono text-[11px] uppercase tracking-widest text-mute"></span>
         <span class="mx-2 text-line">|</span>
         <a id="sk-mic-link" href="{{ url_for('sketchtalk_blueprint.mic', room=data.room) }}"
            class="font-mono text-[11px] font-semibold uppercase tracking-[0.2em] underline"
@@ -133,6 +134,10 @@
                            class="w-full bg-transparent text-sm font-medium tracking-tight focus:outline-none placeholder:text-mute/70">
                 </form>
             </div>
+            <span id="sk-mode" class="flex items-center gap-1" title="Fast menggambar tiap frasa. Slow menunggu satu gagasan utuh, lalu menyiapkan slide berikutnya di belakang.">
+                <button id="sk-mode-fast" type="button" class="sk-lang">Fast</button>
+                <button id="sk-mode-slow" type="button" class="sk-lang">Slow</button>
+            </span>
             <span id="sk-lang" class="sk-lang" title="Ganti bahasa suara">ID</span>
             <button id="sk-send" type="button" class="sk-send">Gambar</button>
         </div>
@@ -151,5 +156,5 @@
     };
 </script>
 <script src="{{ url_for('static', filename='sketchtalk/sketchtalk-icons.js') }}" defer></script>
-<script src="{{ url_for('static', filename='sketchtalk/sketchtalk.js') }}?v=hold" defer></script>
+<script src="{{ url_for('static', filename='sketchtalk/sketchtalk.js') }}?v=slow" defer></script>
 {% endblock %}

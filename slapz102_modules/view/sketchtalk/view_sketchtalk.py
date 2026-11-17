@@ -133,6 +133,11 @@ def json_interpret():
     is_paused = payload.get("is_paused") == True
     partial = payload.get("partial") == True
     instant = payload.get("instant") == True
+    flush = payload.get("flush") == True
+    mode = str(payload.get("mode") or "fast").strip().lower()
+    if mode != "slow":
+        mode = "fast"
+    # end if
     room = ""
     if payload.get("room"):
         room = sanitize.clean_html(str(payload.get("room")).strip().upper())[0:12]
@@ -166,11 +171,21 @@ def json_interpret():
         }
     # end if
 
+    proc = sketchtalk_proc()
+    if room != "":
+        proc.set_gen_mode(room, mode)
+    # end if
     if transcript == "":
-        result = {"status": "SUCCESS", "engine": "command", "directive": {"action": "IGNORE", "topic_summary": "", "layout": "single", "objects": []}}
+        info = proc.slow_public(room)
+        result = {
+            "status": "SUCCESS",
+            "engine": "command",
+            "gen_mode": info["mode"],
+            "slow_status": info["status"],
+            "directive": {"action": "IGNORE", "topic_summary": "", "layout": "single", "objects": []}
+        }
     else:
-        proc = sketchtalk_proc()
-        result = proc.interpret(transcript, lang, is_paused, clean_canvas, partial, instant, room, source, slide)
+        result = proc.interpret(transcript, lang, is_paused, clean_canvas, partial, instant, room, source, slide, mode, flush)
     # end if
 
     # Echo the client sequence number so stale real-time responses can be

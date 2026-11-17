@@ -15,6 +15,8 @@
     var engineEl = document.getElementById('sk-engine');
     var langBtn = document.getElementById('sk-lang');
     var stageEl = document.getElementById('sk-stage');
+    var modeFastBtn = document.getElementById('sk-mode-fast');
+    var modeSlowBtn = document.getElementById('sk-mode-slow');
 
     var SOURCE_ID = 'mic-' + Math.random().toString(36).slice(2, 10);
     var currentLang = 'id-ID';
@@ -175,11 +177,106 @@
     // ------------------------------------------------------------------
     // Continuous pipeline (identical semantics to the stage page)
     // ------------------------------------------------------------------
-    function onSpeech(text, isFinal) {
+    var genMode = 'fast';
+    var slowFlushTimer = 0;
+    try {
+        genMode = localStorage.getItem('sketchtalk-mode') === 'slow' ? 'slow' : 'fast';
+    } catch (err) {
+        genMode = 'fast';
+    }
+
+    function paintMode() {
+        if (modeFastBtn) {
+            modeFastBtn.style.background = genMode === 'fast' ? '#111' : '';
+            modeFastBtn.style.color = genMode === 'fast' ? '#fff' : '';
+        }
+        if (modeSlowBtn) {
+            modeSlowBtn.style.background = genMode === 'slow' ? '#111' : '';
+            modeSlowBtn.style.color = genMode === 'slow' ? '#fff' : '';
+        }
+    }
+
+    function showSlowStatus(status) {
+        if (genMode !== 'slow') {
+            return;
+        }
+        var label = 'mendengarkan, slide menyusul jeda';
+        if (status === 'preparing') {
+            label = 'menyusun slide';
+        } else if (status === 'ready') {
+            label = 'slide berikutnya siap';
+        } else if (status === 'shown') {
+            label = 'slide tampil';
+        }
+        stageEl.textContent = 'Slow · ' + label;
+    }
+
+    function postMode() {
+        var payload = {
+            transcript: '',
+            lang: currentLang,
+            partial: false,
+            instant: false,
+            flush: false,
+            mode: genMode,
+            room: CFG.room || '',
+            source: SOURCE_ID
+        };
+        var body = new URLSearchParams();
+        body.set('csrf_token', CFG.csrfToken || '');
+        body.set('payload', JSON.stringify(payload));
+        fetch(CFG.interpretUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
+        }).catch(function () { });
+    }
+
+    function setGenMode(mode, announce) {
+        genMode = mode === 'slow' ? 'slow' : 'fast';
+        try {
+            localStorage.setItem('sketchtalk-mode', genMode);
+        } catch (err) {
+        }
+        paintMode();
+        if (announce) {
+            toast(genMode === 'slow' ? 'Slow — satu slide tiap gagasan' : 'Fast — gambar mengikuti ucapan');
+            postMode();
+            if (genMode === 'slow') {
+                showSlowStatus('listening');
+            }
+        }
+    }
+
+    function armSlowFlush(text) {
+        if (genMode !== 'slow') {
+            return;
+        }
+        if (slowFlushTimer) {
+            clearTimeout(slowFlushTimer);
+        }
+        slowFlushTimer = setTimeout(function () {
+            slowFlushTimer = 0;
+            if (genMode !== 'slow') {
+                return;
+            }
+            sendToServer(text, false, true);
+        }, 1700);
+    }
+
+    if (modeFastBtn) {
+        modeFastBtn.addEventListener('click', function () { setGenMode('fast', true); });
+    }
+    if (modeSlowBtn) {
+        modeSlowBtn.addEventListener('click', function () { setGenMode('slow', true); });
+    }
+    paintMode();
+
+    function onSpeech(text, isFinal, flushNow) {
         if (state.paused) {
             if (RE_RESUME.test(text)) {
                 setPaused(false);
-                sendToServer(text, false);
+                sendToServer(text, false, false);
             }
             return;
         }
@@ -193,16 +290,16 @@
             }
             lastPreviewAt = now;
             lastPreviewText = text;
-            sendToServer(text, true);
+            sendToServer(text, true, false);
         } else {
-            if (text === lastPreviewText && text === lastAppliedPreviewText) {
+            if (genMode !== 'slow' && text === lastPreviewText && text === lastAppliedPreviewText) {
                 return;
             }
-            sendToServer(text, false);
+            sendToServer(text, false, flushNow === true);
         }
     }
 
-    function sendToServer(text, partial) {
+    function sendToServer(text, partial, flush) {
         if (RE_PAUSE.test(text)) {
             setPaused(true);
             return;
@@ -211,6 +308,7 @@
             // The stage clears itself from the pushed directive below.
         }
 
+        var slow = genMode === 'slow';
         var seq = ++seqCounter;
         var aiSeq = partial ? ++seqCounter : seq;
 
@@ -220,7 +318,9 @@
                 lang: currentLang,
                 is_paused: state.paused,
                 partial: partial,
-                instant: instant === true,
+                instant: slow ? false : instant === true,
+                flush: flush === true,
+                mode: genMode,
                 room: CFG.room || '',
                 source: SOURCE_ID,
                 seq: payloadSeq,
@@ -244,6 +344,9 @@
             });
         }
 
+        if (flush !== true) {
+            armSlowFlush(text);
+        }
         if (partial) {
             doPost(seq, true)
                 .then(function (res) {
@@ -265,6 +368,9 @@
                     console.warn('[sketchtalk-mic] preview failed:', err);
                     interimEl.textContent = '⚠ tidak bisa menghubungi server — cek jaringan perangkat ini';
                 });
+            if (slow) {
+                return;
+            }
         }
         doPost(aiSeq, false)
             .then(function (res) {
@@ -287,7 +393,9 @@
                 if (partial) {
                     lastAppliedPreviewText = text;
                 }
-                if (result.directive && result.directive.action === 'IGNORE' && !partial) {
+                if (result.gen_mode === 'slow') {
+                    showSlowStatus(result.slow_status || '');
+                } else if (result.directive && result.directive.action === 'IGNORE' && !partial) {
                     interimEl.textContent = '· didengar, belum ada gagasan visual: "' + (text.length > 40 ? text.slice(0, 40) + '…' : text) + '" ·';
                 }
             })
@@ -309,7 +417,7 @@
             }
             interimEl.textContent = '✓ "' + val + '"';
             inputEl.value = '';
-            onSpeech(val, true);
+            onSpeech(val, true, true);
         });
     }
 
@@ -327,7 +435,7 @@
         btn.addEventListener('click', function () {
             var text = btn.getAttribute('data-text') || '';
             interimEl.textContent = '✓ "' + text + '"';
-            onSpeech(text, true);
+            onSpeech(text, true, true);
         });
     });
 
@@ -341,10 +449,21 @@
         fetch(CFG.stateUrl + '?since=' + lastRoomSeq)
             .then(function (res) { return res.json(); })
             .then(function (st) {
-                if (st && typeof st.seq === 'number' && st.seq > 0) {
+                if (!st) {
+                    return;
+                }
+                if ((st.gen_mode === 'slow' || st.gen_mode === 'fast') && st.gen_mode !== genMode) {
+                    setGenMode(st.gen_mode, false);
+                }
+                if (st.gen_mode === 'slow') {
+                    showSlowStatus(st.slow_status || '');
+                } else if (typeof st.seq === 'number' && st.seq > 0) {
                     lastRoomSeq = Math.max(lastRoomSeq, st.seq);
                     var topic = st.directive && st.directive.topic_summary ? st.directive.topic_summary : '';
                     stageEl.textContent = 'layar: ' + (topic !== '' ? topic : 'menunggu');
+                }
+                if (typeof st.seq === 'number' && st.seq > 0) {
+                    lastRoomSeq = Math.max(lastRoomSeq, st.seq);
                 }
             })
             .catch(function () { });

@@ -34,6 +34,11 @@
     <div class="flex items-center gap-3">
         <span id="sk-engine" class="font-mono text-[11px] uppercase tracking-widest text-mute">engine: &hellip;</span>
         <span class="text-line">|</span>
+        <span id="sk-mode" class="flex items-center gap-1">
+            <button id="sk-mode-fast" type="button" class="sk-lang">Fast</button>
+            <button id="sk-mode-slow" type="button" class="sk-lang">Slow</button>
+        </span>
+        <span class="text-line">|</span>
         <span id="sk-lang" class="sk-lang" title="Ganti bahasa suara">ID</span>
     </div>
 
@@ -67,5 +72,5 @@
         aiModel: "{{ data.ai_model }}"
     };
 </script>
-<script src="{{ url_for('static', filename='sketchtalk/sketchtalk-mic.js') }}" defer></script>
+<script src="{{ url_for('static', filename='sketchtalk/sketchtalk-mic.js') }}?v=slow" defer></script>
 {% endblock %}
